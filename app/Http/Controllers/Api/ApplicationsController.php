@@ -579,8 +579,8 @@ class ApplicationsController extends Controller
     }
 
     #[OA\Post(
-        summary: 'Create (Dockerfile)',
-        description: 'Create new application based on a simple Dockerfile.',
+        summary: 'Create (Dockerfile without git)',
+        description: 'Create new application based on a simple Dockerfile (without git).',
         path: '/applications/dockerfile',
         operationId: 'create-dockerfile-application',
         security: [
@@ -715,8 +715,8 @@ class ApplicationsController extends Controller
     }
 
     #[OA\Post(
-        summary: 'Create (Docker Image)',
-        description: 'Create new application based on a prebuilt docker image',
+        summary: 'Create (Docker Image without git)',
+        description: 'Create new application based on a prebuilt docker image (without git).',
         path: '/applications/dockerimage',
         operationId: 'create-dockerimage-application',
         security: [
