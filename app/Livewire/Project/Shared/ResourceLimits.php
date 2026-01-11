@@ -12,7 +12,8 @@ class ResourceLimits extends Component
 
     public mixed $resource;
 
-    public ?string $limitsCpus = null;
+    // NOTE: In a future version string support will be removed
+    public string|float|null $limitsCpus = null;
     public ?string $limitsCpuset = null;
     public ?int $limitsCpuShares = null;
     public ?string $limitsMemory = null;
@@ -71,40 +72,57 @@ class ResourceLimits extends Component
 
     /**
      * Load limits from the new resource_limits table structure.
-     * Converts default values to null for display.
      */
     private function loadFromNewStructure(): void
     {
         $limits = $this->resource->resourceLimits;
-        $defaults = ResourceLimit::DEFAULTS;
-        $this->limitsCpus = $this->normalizeValueForDisplay($limits->limits_cpus, $defaults['limits_cpus']);
-        $this->limitsCpuset = $this->normalizeValueForDisplay($limits->limits_cpuset, $defaults['limits_cpuset']);
-        $this->limitsCpuShares = $this->normalizeValueForDisplay($limits->limits_cpu_shares, $defaults['limits_cpu_shares']);
-        $this->limitsMemory = $this->normalizeValueForDisplay($limits->limits_memory, $defaults['limits_memory']);
-        $this->limitsMemorySwap = $this->normalizeValueForDisplay($limits->limits_memory_swap, $defaults['limits_memory_swap']);
-        $this->limitsMemorySwappiness = $this->normalizeValueForDisplay($limits->limits_memory_swappiness, $defaults['limits_memory_swappiness']);
-        $this->limitsMemoryReservation = $this->normalizeValueForDisplay($limits->limits_memory_reservation, $defaults['limits_memory_reservation']);
+        $this->limitsCpus = $limits->cpus;
+        $this->limitsCpuset = $limits->cpuset;
+        $this->limitsCpuShares = $limits->cpu_shares;
+        $this->limitsMemory = $limits->mem_limit;
+        $this->limitsMemorySwap = $limits->memswap_limit;
+        $this->limitsMemorySwappiness = $limits->mem_swappiness;
+        $this->limitsMemoryReservation = $limits->mem_reservation;
     }
 
     /**
      * Load limits from direct columns on the resource model (legacy pattern).
-     * Converts default values to null for display.
+     * Normalizes '0' memory values to '0m' for UI compatibility.
      */
     private function loadFromLegacyColumns(): void
     {
-        $defaults = ResourceLimit::DEFAULTS;
-        $this->limitsCpus = $this->normalizeValueForDisplay($this->resource->limits_cpus, $defaults['limits_cpus']);
-        $this->limitsCpuset = $this->normalizeValueForDisplay($this->resource->limits_cpuset, $defaults['limits_cpuset']);
-        $this->limitsCpuShares = $this->normalizeValueForDisplay($this->resource->limits_cpu_shares, $defaults['limits_cpu_shares']);
-        $this->limitsMemory = $this->normalizeValueForDisplay($this->resource->limits_memory, $defaults['limits_memory']);
-        $this->limitsMemorySwap = $this->normalizeValueForDisplay($this->resource->limits_memory_swap, $defaults['limits_memory_swap']);
-        $this->limitsMemorySwappiness = $this->normalizeValueForDisplay($this->resource->limits_memory_swappiness, $defaults['limits_memory_swappiness']);
-        $this->limitsMemoryReservation = $this->normalizeValueForDisplay($this->resource->limits_memory_reservation, $defaults['limits_memory_reservation']);
+        $this->limitsCpus = $this->resource->limits_cpus;
+        $this->limitsCpuset = $this->resource->limits_cpuset;
+        $this->limitsCpuShares = $this->resource->limits_cpu_shares;
+
+        // Normalize '0' to '0m' for memory fields so UI can handle them
+        $this->limitsMemory = $this->normalizeMemoryValue($this->resource->limits_memory);
+        $this->limitsMemorySwap = $this->normalizeMemoryValue($this->resource->limits_memory_swap);
+        $this->limitsMemorySwappiness = $this->resource->limits_memory_swappiness;
+        $this->limitsMemoryReservation = $this->normalizeMemoryValue($this->resource->limits_memory_reservation);
+    }
+
+    /**
+     * Normalize memory value for UI display.
+     * Converts '0' to '0m' so the input-with-select component can handle it.
+     */
+    private function normalizeMemoryValue(?string $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        // If value is just '0' without a unit, add 'm' so UI can parse it
+        if ($value === '0') {
+            return '0m';
+        }
+
+        return $value;
     }
 
     /**
      * Load limits for a fresh resource (no limits configured yet).
-     * Sets all properties to null for display.
+     * All properties are null.
      */
     private function loadFromFresh(): void
     {
@@ -117,53 +135,18 @@ class ResourceLimits extends Component
         $this->limitsMemoryReservation = null;
     }
 
-    /**
-     * Normalize a value for display: if it equals the default, return null.
-     */
-    private function normalizeValueForDisplay($value, $default): mixed
-    {
-        // Compare as strings for consistency
-        if ((string) $value === (string) $default) {
-            return null;
-        }
-
-        return $value;
-    }
-
-    /**
-     * Normalize a value for saving: if it is null, return the default.
-     */
-    private function normalizeValueForSave($value, $default): mixed
-    {
-        return $value === null ? $default : $value;
-    }
-
-    /**
-     * Normalize properties with defaults before saving.
-     * Only applies defaults when value is null (not empty strings).
-     */
-    private function normalizeProperties(): void
-    {
-        $defaults = ResourceLimit::DEFAULTS;
-        $this->limitsCpus = $this->normalizeValueForSave($this->limitsCpus, $defaults['limits_cpus']);
-        $this->limitsCpuset = $this->normalizeValueForSave($this->limitsCpuset, $defaults['limits_cpuset']);
-        $this->limitsCpuShares = $this->normalizeValueForSave($this->limitsCpuShares, $defaults['limits_cpu_shares']);
-        $this->limitsMemory = $this->normalizeValueForSave($this->limitsMemory, $defaults['limits_memory']);
-        $this->limitsMemorySwap = $this->normalizeValueForSave($this->limitsMemorySwap, $defaults['limits_memory_swap']);
-        $this->limitsMemorySwappiness = $this->normalizeValueForSave($this->limitsMemorySwappiness, $defaults['limits_memory_swappiness']);
-        $this->limitsMemoryReservation = $this->normalizeValueForSave($this->limitsMemoryReservation, $defaults['limits_memory_reservation']);
-    }
-
     private function getLimitsArray(): array
     {
+        // Return array with new docker-compose column names
+        // The trait will handle mapping to legacy names if needed
         return [
-            'limits_cpus' => $this->limitsCpus,
-            'limits_cpuset' => $this->limitsCpuset,
-            'limits_cpu_shares' => $this->limitsCpuShares,
-            'limits_memory' => $this->limitsMemory,
-            'limits_memory_swap' => $this->limitsMemorySwap,
-            'limits_memory_swappiness' => $this->limitsMemorySwappiness,
-            'limits_memory_reservation' => $this->limitsMemoryReservation,
+            'cpus' => $this->limitsCpus,
+            'cpuset' => $this->limitsCpuset,
+            'cpu_shares' => $this->limitsCpuShares,
+            'mem_limit' => $this->limitsMemory,
+            'memswap_limit' => $this->limitsMemorySwap,
+            'mem_swappiness' => $this->limitsMemorySwappiness,
+            'mem_reservation' => $this->limitsMemoryReservation,
         ];
     }
 
@@ -172,7 +155,6 @@ class ResourceLimits extends Component
         try {
             $this->authorize('update', $this->resource);
 
-            $this->normalizeProperties();
             $this->validate();
             $this->saveToCurrentStorage();
             $this->updateUIFromStorage();
@@ -201,7 +183,7 @@ class ResourceLimits extends Component
     }
 
     /**
-     * Update UI with values from storage, converting defaults to null for display.
+     * Update UI with values from storage.
      */
     private function updateUIFromStorage(): void
     {
