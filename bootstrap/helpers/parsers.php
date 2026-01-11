@@ -1916,6 +1916,39 @@ function serviceParser(Service $resource): Collection
             $savedService->save();
         }
 
+        // Extract resource limits from compose file (if present) and sync to database
+        $defaults = \App\Models\ResourceLimit::DEFAULTS;
+        $composeLimits = [];
+
+        if ($server->isSwarm()) {
+            // TODO: Swarm resource limits feature needs full rework
+        } else {
+            $composeLimits = [
+                'limits_cpus' => data_get($service, 'cpus', $defaults['limits_cpus']),
+                'limits_cpuset' => data_get($service, 'cpuset', $defaults['limits_cpuset']),
+                'limits_cpu_shares' => data_get($service, 'cpu_shares', $defaults['limits_cpu_shares']),
+                'limits_memory' => data_get($service, 'mem_limit', $defaults['limits_memory']),
+                'limits_memory_swap' => data_get($service, 'memswap_limit', $defaults['limits_memory_swap']),
+                'limits_memory_swappiness' => data_get($service, 'mem_swappiness', $defaults['limits_memory_swappiness']),
+                'limits_memory_reservation' => data_get($service, 'mem_reservation', $defaults['limits_memory_reservation']),
+            ];
+        }
+
+        // Check if compose file has any non-default limits
+        $hasComposeLimits = false;
+        foreach ($composeLimits as $key => $value) {
+            $default = $defaults[$key];
+            if ((string) $value !== (string) $default) {
+                $hasComposeLimits = true;
+                break;
+            }
+        }
+
+        // If compose has limits, sync to database (compose takes precedence)
+        if ($hasComposeLimits) {
+            $savedService->saveResourceLimits($composeLimits);
+        }
+
         $originalResource = $savedService;
 
         if ($volumes->count() > 0) {
@@ -2416,6 +2449,42 @@ function serviceParser(Service $resource): Collection
         if ($depends_on->count() > 0) {
             $payload['depends_on'] = $depends_on;
         }
+
+        // Get effective resource limits from database and add to compose
+        $effectiveLimits = $savedService->getEffectiveResourceLimits();
+        $defaults = \App\Models\ResourceLimit::DEFAULTS;
+
+        // Handle Swarm mode: limits go in deploy.resources section
+        if ($server->isSwarm()) {
+            // TODO: Swarm resource limits feature needs full rework
+        } else {
+            // Regular Docker Compose mode: add limits directly to service
+            // Add CPU limits
+            if ((string) $effectiveLimits['limits_cpus'] !== (string) $defaults['limits_cpus']) {
+                $payload['cpus'] = (float) $effectiveLimits['limits_cpus'];
+            }
+            if ((string) $effectiveLimits['limits_cpuset'] !== (string) $defaults['limits_cpuset']) {
+                $payload['cpuset'] = $effectiveLimits['limits_cpuset'];
+            }
+            if ((string) $effectiveLimits['limits_cpu_shares'] !== (string) $defaults['limits_cpu_shares']) {
+                $payload['cpu_shares'] = $effectiveLimits['limits_cpu_shares'];
+            }
+
+            // Add memory limits
+            if ((string) $effectiveLimits['limits_memory'] !== (string) $defaults['limits_memory']) {
+                $payload['mem_limit'] = $effectiveLimits['limits_memory'];
+            }
+            if ((string) $effectiveLimits['limits_memory_swap'] !== (string) $defaults['limits_memory_swap']) {
+                $payload['memswap_limit'] = $effectiveLimits['limits_memory_swap'];
+            }
+            if ((string) $effectiveLimits['limits_memory_swappiness'] !== (string) $defaults['limits_memory_swappiness']) {
+                $payload['mem_swappiness'] = $effectiveLimits['limits_memory_swappiness'];
+            }
+            if ((string) $effectiveLimits['limits_memory_reservation'] !== (string) $defaults['limits_memory_reservation']) {
+                $payload['mem_reservation'] = $effectiveLimits['limits_memory_reservation'];
+            }
+        }
+
         // Auto-inject .env file so Coolify environment variables are available inside containers
         // This makes Services behave consistently with Applications
         $existingEnvFiles = data_get($service, 'env_file');
