@@ -44,6 +44,50 @@ class DatabasesController extends Controller
         return serializeApiResponse($database);
     }
 
+    /**
+     * Extract legacy limit fields from request.
+     * Only extracts if saveLegacyLimitsToNewStructure exists - otherwise keeps fields for legacy storage.
+     *
+     * @param Request $request
+     * @param string $modelClass The model class to check for the method
+     * @return array Extracted legacy limits (empty if method doesn't exist or no limits provided)
+     */
+    private function extractLegacyLimitsFromRequest(Request $request, string $modelClass): array
+    {
+        $legacyLimitFields = ['limits_memory', 'limits_memory_swap', 'limits_memory_swappiness',
+                             'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares'];
+        $legacyLimits = [];
+        $hasSaveLegacyMethod = method_exists($modelClass, 'saveLegacyLimitsToNewStructure');
+
+        // Check if method exists before extracting fields
+        if ($hasSaveLegacyMethod) {
+            foreach ($legacyLimitFields as $field) {
+                if ($request->has($field)) {
+                    $legacyLimits[$field] = $request->input($field);
+                    // Remove from request so it doesn't get saved to legacy column
+                    $request->offsetUnset($field);
+                }
+            }
+        }
+
+        return $legacyLimits;
+    }
+
+    /**
+     * Save legacy limits to new structure if present and method exists.
+     *
+     * @param mixed $database The database instance to save limits to
+     * @param array $legacyLimits The extracted legacy limits
+     * @return void
+     */
+    private function saveLegacyLimitsToNewStructure($database, array $legacyLimits): void
+    {
+        if (!empty($legacyLimits) && method_exists($database, 'saveLegacyLimitsToNewStructure')) {
+            $database->saveLegacyLimitsToNewStructure($legacyLimits);
+        }
+    }
+
+
     #[OA\Get(
         summary: 'List',
         description: 'List all databases.',
@@ -580,8 +624,53 @@ class DatabasesController extends Controller
             $whatToDoWithDatabaseProxy = 'start';
         }
 
-        // Only update database fields, not backup configuration
-        $database->update($request->only($allowedFields));
+        $updateData = $request->only($allowedFields);
+
+        // Check current storage pattern - update uses whatever is currently in use
+        $legacyLimitFields = ['limits_memory', 'limits_memory_swap', 'limits_memory_swappiness',
+                             'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares'];
+
+        if (method_exists($database, 'getResourceLimitsSource')) {
+            $currentSource = $database->getResourceLimitsSource();
+
+            if ($currentSource === 'new') {
+                // Resource uses new structure - convert legacy field names to new names and save
+                $newLimits = [];
+                $legacyToNew = \App\Models\ResourceLimit::getLegacyToNewMapping();
+
+                foreach ($legacyLimitFields as $legacyField) {
+                    if (isset($updateData[$legacyField])) {
+                        $newKey = $legacyToNew[$legacyField] ?? null;
+                        if ($newKey) {
+                            $value = $updateData[$legacyField];
+                            // Convert cpus from string to float for new structure
+                            if ($newKey === 'cpus' && $value !== null) {
+                                $value = (float) $value;
+                            }
+                            $newLimits[$newKey] = $value;
+                        }
+                        // Remove from update data so it doesn't get saved to legacy column
+                        unset($updateData[$legacyField]);
+                    }
+                }
+
+                // Only update database fields, not backup configuration
+                $database->update($updateData);
+
+                // Save limits using the trait method (handles new structure)
+                if (!empty($newLimits) && method_exists($database, 'saveResourceLimits')) {
+                    $database->saveResourceLimits($newLimits);
+                }
+            } else {
+                // Resource uses legacy storage - keep legacy fields in updateData
+                // Only update database fields, not backup configuration
+                $database->update($updateData);
+            }
+        } else {
+            // No trait method - fallback to legacy behavior
+            // Only update database fields, not backup configuration
+            $database->update($updateData);
+        }
 
         if ($whatToDoWithDatabaseProxy === 'start') {
             StartDatabaseProxy::dispatch($database);
@@ -1711,7 +1800,11 @@ class DatabasesController extends Controller
                 }
                 $request->offsetSet('postgres_conf', $postgresConf);
             }
+
+            $legacyLimits = $this->extractLegacyLimitsFromRequest($request, \App\Models\StandalonePostgresql::class);
             $database = create_standalone_postgresql($environment->id, $destination->uuid, $request->all());
+            $this->saveLegacyLimitsToNewStructure($database, $legacyLimits);
+
             if ($instantDeploy) {
                 StartDatabase::dispatch($database);
             }
@@ -1766,7 +1859,11 @@ class DatabasesController extends Controller
                 }
                 $request->offsetSet('mariadb_conf', $mariadbConf);
             }
+
+            $legacyLimits = $this->extractLegacyLimitsFromRequest($request, \App\Models\StandaloneMariadb::class);
             $database = create_standalone_mariadb($environment->id, $destination->uuid, $request->all());
+            $this->saveLegacyLimitsToNewStructure($database, $legacyLimits);
+
             if ($instantDeploy) {
                 StartDatabase::dispatch($database);
             }
@@ -1825,7 +1922,11 @@ class DatabasesController extends Controller
                 }
                 $request->offsetSet('mysql_conf', $mysqlConf);
             }
+
+            $legacyLimits = $this->extractLegacyLimitsFromRequest($request, \App\Models\StandaloneMysql::class);
             $database = create_standalone_mysql($environment->id, $destination->uuid, $request->all());
+            $this->saveLegacyLimitsToNewStructure($database, $legacyLimits);
+
             if ($instantDeploy) {
                 StartDatabase::dispatch($database);
             }
@@ -1881,7 +1982,11 @@ class DatabasesController extends Controller
                 }
                 $request->offsetSet('redis_conf', $redisConf);
             }
+
+            $legacyLimits = $this->extractLegacyLimitsFromRequest($request, \App\Models\StandaloneRedis::class);
             $database = create_standalone_redis($environment->id, $destination->uuid, $request->all());
+            $this->saveLegacyLimitsToNewStructure($database, $legacyLimits);
+
             if ($instantDeploy) {
                 StartDatabase::dispatch($database);
             }
@@ -1918,7 +2023,10 @@ class DatabasesController extends Controller
             }
 
             removeUnnecessaryFieldsFromRequest($request);
+            $legacyLimits = $this->extractLegacyLimitsFromRequest($request, \App\Models\StandaloneDragonfly::class);
             $database = create_standalone_dragonfly($environment->id, $destination->uuid, $request->all());
+            $this->saveLegacyLimitsToNewStructure($database, $legacyLimits);
+
             if ($instantDeploy) {
                 StartDatabase::dispatch($database);
             }
@@ -1967,7 +2075,11 @@ class DatabasesController extends Controller
                 }
                 $request->offsetSet('keydb_conf', $keydbConf);
             }
+
+            $legacyLimits = $this->extractLegacyLimitsFromRequest($request, \App\Models\StandaloneKeydb::class);
             $database = create_standalone_keydb($environment->id, $destination->uuid, $request->all());
+            $this->saveLegacyLimitsToNewStructure($database, $legacyLimits);
+
             if ($instantDeploy) {
                 StartDatabase::dispatch($database);
             }
@@ -2003,7 +2115,10 @@ class DatabasesController extends Controller
                 ], 422);
             }
             removeUnnecessaryFieldsFromRequest($request);
+            $legacyLimits = $this->extractLegacyLimitsFromRequest($request, \App\Models\StandaloneClickhouse::class);
             $database = create_standalone_clickhouse($environment->id, $destination->uuid, $request->all());
+            $this->saveLegacyLimitsToNewStructure($database, $legacyLimits);
+
             if ($instantDeploy) {
                 StartDatabase::dispatch($database);
             }
@@ -2061,7 +2176,11 @@ class DatabasesController extends Controller
                 }
                 $request->offsetSet('mongo_conf', $mongoConf);
             }
+
+            $legacyLimits = $this->extractLegacyLimitsFromRequest($request, \App\Models\StandaloneMongodb::class);
             $database = create_standalone_mongodb($environment->id, $destination->uuid, $request->all());
+            $this->saveLegacyLimitsToNewStructure($database, $legacyLimits);
+
             if ($instantDeploy) {
                 StartDatabase::dispatch($database);
             }
