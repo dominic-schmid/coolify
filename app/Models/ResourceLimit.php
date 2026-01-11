@@ -10,27 +10,26 @@ class ResourceLimit extends Model
     protected $guarded = [];
 
     protected $casts = [
-        'limits_cpus' => 'string',
-        'limits_cpuset' => 'string',
-        'limits_cpu_shares' => 'integer',
-        'limits_memory' => 'string',
-        'limits_memory_swap' => 'string',
-        'limits_memory_swappiness' => 'integer',
-        'limits_memory_reservation' => 'string',
+        'cpus' => 'float',
+        'cpuset' => 'string',
+        'cpu_shares' => 'integer',
+        'mem_limit' => 'string',
+        'memswap_limit' => 'string',
+        'mem_swappiness' => 'integer',
+        'mem_reservation' => 'string',
     ];
 
     /**
-     * Default values for resource limits.
-     * Used for comparison when detecting legacy vs fresh resources.
+     * List of resource limit field names (matches docker-compose column names).
      */
-    public const DEFAULTS = [
-        'limits_cpus' => '0',
-        'limits_cpuset' => '0',
-        'limits_cpu_shares' => 1024,
-        'limits_memory' => '0',
-        'limits_memory_swap' => '0',
-        'limits_memory_swappiness' => 60,
-        'limits_memory_reservation' => '0',
+    public const FIELDS = [
+        'cpus',
+        'cpuset',
+        'cpu_shares',
+        'mem_limit',
+        'memswap_limit',
+        'mem_swappiness',
+        'mem_reservation',
     ];
 
     /**
@@ -42,28 +41,66 @@ class ResourceLimit extends Model
     }
 
     /**
-     * Check if all limits are at default values.
+     * Get all fields with default values (all null).
      */
-    public function hasDefaultValues(): bool
+    public static function getFieldsWithDefaults(): array
     {
-        foreach (self::DEFAULTS as $key => $default) {
-            $currentValue = $this->{$key};
+        return array_fill_keys(self::FIELDS, null);
+    }
 
-            // Handle null comparison
-            if ($default === null) {
-                if ($currentValue !== null && $currentValue !== '') {
-                    return false;
-                }
+    /**
+     * Get legacy column default values (original database defaults).
+     * Used when resetting legacy columns during migration.
+     * Note: These use the old 'limits_*' column names for legacy tables.
+     */
+    public static function getLegacyDefaults(): array
+    {
+        return [
+            'limits_cpus' => '0',
+            'limits_cpuset' => null,
+            'limits_cpu_shares' => 1024,
+            'limits_memory' => '0',
+            'limits_memory_swap' => '0',
+            'limits_memory_swappiness' => 60,
+            'limits_memory_reservation' => '0',
+        ];
+    }
 
-                continue;
-            }
+    /**
+     * Map new column names to legacy column names for migration purposes.
+     */
+    public static function getNewToLegacyMapping(): array
+    {
+        return [
+            'cpus' => 'limits_cpus',
+            'cpuset' => 'limits_cpuset',
+            'cpu_shares' => 'limits_cpu_shares',
+            'mem_limit' => 'limits_memory',
+            'memswap_limit' => 'limits_memory_swap',
+            'mem_swappiness' => 'limits_memory_swappiness',
+            'mem_reservation' => 'limits_memory_reservation',
+        ];
+    }
 
-            // Compare as strings for consistency
-            if ((string) $currentValue !== (string) $default) {
-                return false;
+    /**
+     * Map legacy column names to new column names for migration purposes.
+     */
+    public static function getLegacyToNewMapping(): array
+    {
+        return array_flip(self::getNewToLegacyMapping());
+    }
+
+    /**
+     * Check if any limit is set (non-null).
+     */
+    public function hasAnyLimitsSet(): bool
+    {
+        foreach (self::FIELDS as $key) {
+            if ($this->{$key} !== null) {
+                return true;
             }
         }
 
-        return true;
+        return false;
     }
 }
