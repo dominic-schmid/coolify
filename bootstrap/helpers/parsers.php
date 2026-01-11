@@ -1917,28 +1917,27 @@ function serviceParser(Service $resource): Collection
         }
 
         // Extract resource limits from compose file (if present) and sync to database
-        $defaults = \App\Models\ResourceLimit::DEFAULTS;
         $composeLimits = [];
 
         if ($server->isSwarm()) {
             // TODO: Swarm resource limits feature needs full rework
         } else {
+            // Extract limits from compose, using null as default (not set)
             $composeLimits = [
-                'limits_cpus' => data_get($service, 'cpus', $defaults['limits_cpus']),
-                'limits_cpuset' => data_get($service, 'cpuset', $defaults['limits_cpuset']),
-                'limits_cpu_shares' => data_get($service, 'cpu_shares', $defaults['limits_cpu_shares']),
-                'limits_memory' => data_get($service, 'mem_limit', $defaults['limits_memory']),
-                'limits_memory_swap' => data_get($service, 'memswap_limit', $defaults['limits_memory_swap']),
-                'limits_memory_swappiness' => data_get($service, 'mem_swappiness', $defaults['limits_memory_swappiness']),
-                'limits_memory_reservation' => data_get($service, 'mem_reservation', $defaults['limits_memory_reservation']),
+                'limits_cpus' => data_get($service, 'cpus', null),
+                'limits_cpuset' => data_get($service, 'cpuset', null),
+                'limits_cpu_shares' => data_get($service, 'cpu_shares', null),
+                'limits_memory' => data_get($service, 'mem_limit', null),
+                'limits_memory_swap' => data_get($service, 'memswap_limit', null),
+                'limits_memory_swappiness' => data_get($service, 'mem_swappiness', null),
+                'limits_memory_reservation' => data_get($service, 'mem_reservation', null),
             ];
         }
 
-        // Check if compose file has any non-default limits
+        // Check if compose file has any explicitly set limits (non-null)
         $hasComposeLimits = false;
-        foreach ($composeLimits as $key => $value) {
-            $default = $defaults[$key];
-            if ((string) $value !== (string) $default) {
+        foreach ($composeLimits as $value) {
+            if ($value !== null) {
                 $hasComposeLimits = true;
                 break;
             }
@@ -2452,36 +2451,35 @@ function serviceParser(Service $resource): Collection
 
         // Get effective resource limits from database and add to compose
         $effectiveLimits = $savedService->getEffectiveResourceLimits();
-        $defaults = \App\Models\ResourceLimit::DEFAULTS;
 
         // Handle Swarm mode: limits go in deploy.resources section
         if ($server->isSwarm()) {
             // TODO: Swarm resource limits feature needs full rework
         } else {
             // Regular Docker Compose mode: add limits directly to service
-            // Add CPU limits
-            if ((string) $effectiveLimits['limits_cpus'] !== (string) $defaults['limits_cpus']) {
-                $payload['cpus'] = (float) $effectiveLimits['limits_cpus'];
+            // Add CPU limits (using new column names from getEffectiveResourceLimits)
+            if ($effectiveLimits['cpus'] !== null) {
+                $payload['cpus'] = (float) $effectiveLimits['cpus'];
             }
-            if ((string) $effectiveLimits['limits_cpuset'] !== (string) $defaults['limits_cpuset']) {
-                $payload['cpuset'] = $effectiveLimits['limits_cpuset'];
+            if ($effectiveLimits['cpuset'] !== null) {
+                $payload['cpuset'] = $effectiveLimits['cpuset'];
             }
-            if ((string) $effectiveLimits['limits_cpu_shares'] !== (string) $defaults['limits_cpu_shares']) {
-                $payload['cpu_shares'] = $effectiveLimits['limits_cpu_shares'];
+            if ($effectiveLimits['cpu_shares'] !== null) {
+                $payload['cpu_shares'] = $effectiveLimits['cpu_shares'];
             }
 
-            // Add memory limits
-            if ((string) $effectiveLimits['limits_memory'] !== (string) $defaults['limits_memory']) {
-                $payload['mem_limit'] = $effectiveLimits['limits_memory'];
+            // Add memory limits (using new column names from getEffectiveResourceLimits)
+            if ($effectiveLimits['mem_limit'] !== null) {
+                $payload['mem_limit'] = $effectiveLimits['mem_limit'];
             }
-            if ((string) $effectiveLimits['limits_memory_swap'] !== (string) $defaults['limits_memory_swap']) {
-                $payload['memswap_limit'] = $effectiveLimits['limits_memory_swap'];
+            if ($effectiveLimits['memswap_limit'] !== null) {
+                $payload['memswap_limit'] = $effectiveLimits['memswap_limit'];
             }
-            if ((string) $effectiveLimits['limits_memory_swappiness'] !== (string) $defaults['limits_memory_swappiness']) {
-                $payload['mem_swappiness'] = $effectiveLimits['limits_memory_swappiness'];
+            if ($effectiveLimits['mem_swappiness'] !== null) {
+                $payload['mem_swappiness'] = $effectiveLimits['mem_swappiness'];
             }
-            if ((string) $effectiveLimits['limits_memory_reservation'] !== (string) $defaults['limits_memory_reservation']) {
-                $payload['mem_reservation'] = $effectiveLimits['limits_memory_reservation'];
+            if ($effectiveLimits['mem_reservation'] !== null) {
+                $payload['mem_reservation'] = $effectiveLimits['mem_reservation'];
             }
         }
 
