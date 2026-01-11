@@ -8,60 +8,90 @@ use Illuminate\Database\Eloquent\Relations\MorphOne;
 trait HasResourceLimits
 {
     /**
-     * Temporarily store resource limits extracted from old fields during creation.
+     * Save resource limits from legacy field names (limits_*) directly to new structure.
+     * Use this when creating new resources via API with legacy field names.
      *
-     * @var array|null
+     * @param array $legacyLimits Array with legacy field names (limits_*)
+     * @return void
      */
-    public $pendingResourceLimits = null;
+    public function saveLegacyLimitsToNewStructure(array $legacyLimits): void
+    {
+        if (empty($legacyLimits)) {
+            return;
+        }
+
+        // Map legacy field names to new field names
+        $legacyToNew = ResourceLimit::getLegacyToNewMapping();
+        $newLimits = [];
+        $legacyDefaults = ResourceLimit::getLegacyDefaults();
+
+        foreach ($legacyLimits as $legacyKey => $value) {
+            if (!isset($legacyToNew[$legacyKey])) {
+                continue; // Skip unknown fields
+            }
+
+            $newKey = $legacyToNew[$legacyKey];
+            $defaultValue = $legacyDefaults[$legacyKey] ?? null;
+
+            // Normalize memory values: "0m" is equivalent to "0" (legacy default)
+            if (in_array($newKey, ['mem_limit', 'memswap_limit', 'mem_reservation'])) {
+                $value = $this->normalizeMemoryValueForStorage($value);
+            }
+
+            // Convert legacy defaults to null in new structure
+            if ($this->isLegacyDefaultValue($value, $defaultValue)) {
+                $newLimits[$newKey] = null;
+            } else {
+                // Convert cpus from string to float if needed
+                if ($newKey === 'cpus' && $value !== null) {
+                    $newLimits[$newKey] = (float) $value;
+                } else {
+                    $newLimits[$newKey] = $value;
+                }
+            }
+        }
+
+        // Save to new structure
+        if (!empty($newLimits)) {
+            $this->saveResourceLimits($newLimits);
+        }
+    }
 
     /**
-     * Boot the trait and register event listeners.
+     * Normalize memory value for storage.
+     * Converts "0" with any suffix (0m, 0M, 0mb, 0MB, 0g, 0G, etc.) back to "0" for legacy compatibility.
      */
-    protected static function bootHasResourceLimits()
+    private function normalizeMemoryValueForStorage($value)
     {
-        // Intercept old limit fields before saving
-        static::saving(function ($model) {
-            // Only intercept for new resources (not updating legacy ones)
-            if ($model->exists) {
-                // Existing resource - check if it's legacy
-                $source = $model->getResourceLimitsSource();
-                if ($source === 'legacy') {
-                    // Don't intercept - let legacy resources continue using old columns
-                    return;
-                }
-            }
+        if ($value === null || $value === '') {
+            return null;
+        }
 
-            // Extract old limit fields from attributes
-            $limitKeys = array_keys(ResourceLimit::DEFAULTS);
-            $pendingLimits = [];
+        // Convert "0" with any suffix back to "0" for legacy compatibility
+        if (preg_match('/^0[a-zA-Z]+$/i', (string) $value)) {
+            return '0';
+        }
 
-            foreach ($limitKeys as $key) {
-                if (isset($model->attributes[$key])) {
-                    $pendingLimits[$key] = $model->attributes[$key];
-                    // Remove from attributes so it doesn't get saved to legacy column
-                    unset($model->attributes[$key]);
-                }
-            }
+        return $value;
+    }
 
-            // Store for saving after model is persisted
-            if (!empty($pendingLimits)) {
-                $model->pendingResourceLimits = $pendingLimits;
-            }
-        });
+    /**
+     * Check if a legacy column value matches its legacy default value.
+     */
+    private function isLegacyDefaultValue($currentValue, $defaultValue): bool
+    {
+        // Both null = match
+        if ($currentValue === null && $defaultValue === null) {
+            return true;
+        }
 
-        // Save intercepted limits to new structure after model is saved
-        static::saved(function ($model) {
-            if (isset($model->pendingResourceLimits) && !empty($model->pendingResourceLimits)) {
-                // Save if resource is fresh (newly created) or already using new structure
-                // Don't save for legacy resources (they weren't intercepted anyway)
-                $source = $model->getResourceLimitsSource();
-                if ($source === 'fresh' || $source === 'new') {
-                    $model->saveResourceLimits($model->pendingResourceLimits);
-                }
-                // Clear the pending limits
-                unset($model->pendingResourceLimits);
-            }
-        });
+        // One is null, other isn't = no match
+        if ($currentValue === null || $defaultValue === null) {
+            return false;
+        }
+
+        // Cast both to strings and compare (handles int/string mismatches)
+        return trim((string) $currentValue) === trim((string) $defaultValue);
     }
 
     /**
@@ -103,7 +133,7 @@ trait HasResourceLimits
 
     /**
      * Check if the resource has legacy direct columns with non-default values.
-     * Only applicable to models that have direct limits_* columns.
+     * Only returns true if legacy columns have values that differ from their defaults.
      */
     public function hasLegacyResourceLimits(): bool
     {
@@ -112,21 +142,27 @@ trait HasResourceLimits
             return false;
         }
 
-        // Check each column against defaults
-        foreach (ResourceLimit::DEFAULTS as $column => $default) {
-            $currentValue = $this->{$column} ?? null;
+        // Check if any legacy column has a non-default value
+        // Legacy columns use 'limits_*' prefix
+        $legacyDefaults = ResourceLimit::getLegacyDefaults();
+        $legacyToNew = ResourceLimit::getLegacyToNewMapping();
 
-            // Handle null comparison
-            if ($default === null) {
-                if ($currentValue !== null && $currentValue !== '') {
-                    return true;
-                }
+        foreach ($legacyToNew as $legacyKey => $newKey) {
+            $currentValue = $this->{$legacyKey};
+            $defaultValue = $legacyDefaults[$legacyKey] ?? null;
 
+            // If value is null and default is null, continue (both are default)
+            if ($currentValue === null && $defaultValue === null) {
                 continue;
             }
 
-            // Compare as strings for consistency (database may return different types)
-            if ((string) $currentValue !== (string) $default) {
+            // If one is null and other isn't, it's non-default
+            if ($currentValue === null || $defaultValue === null) {
+                return true;
+            }
+
+            // Compare as strings for consistency (handles int/string mismatches)
+            if (trim((string) $currentValue) !== trim((string) $defaultValue)) {
                 return true;
             }
         }
@@ -140,6 +176,7 @@ trait HasResourceLimits
     public function hasLegacyResourceLimitColumns(): bool
     {
         // Check if the model's table has the limits_cpus column as a proxy
+        // (legacy tables use 'limits_*' prefix, new table uses docker-compose names)
         return $this->getConnection()
             ->getSchemaBuilder()
             ->hasColumn($this->getTable(), 'limits_cpus');
@@ -156,7 +193,7 @@ trait HasResourceLimits
         if ($source === 'new') {
             $limits = $this->resourceLimits;
             $result = [];
-            foreach (array_keys(ResourceLimit::DEFAULTS) as $key) {
+            foreach (ResourceLimit::FIELDS as $key) {
                 $result[$key] = $limits->{$key};
             }
 
@@ -164,21 +201,28 @@ trait HasResourceLimits
         }
 
         if ($source === 'legacy') {
+            // Legacy columns use 'limits_*' prefix, map to new names
+            $legacyToNew = ResourceLimit::getLegacyToNewMapping();
             $result = [];
-            foreach (array_keys(ResourceLimit::DEFAULTS) as $key) {
-                $result[$key] = $this->{$key};
+            foreach ($legacyToNew as $legacyKey => $newKey) {
+                $value = $this->{$legacyKey};
+                // Convert cpus from legacy string to float
+                if ($newKey === 'cpus' && $value !== null) {
+                    $value = (float) $value;
+                }
+                $result[$newKey] = $value;
             }
 
             return $result;
         }
 
-        // Fresh - return defaults
-        return ResourceLimit::DEFAULTS;
+        // Fresh - all null
+        return ResourceLimit::getFieldsWithDefaults();
     }
 
     /**
      * Migrate legacy resource limits to the new table structure.
-     * Creates a new record in resource_limits and resets legacy columns to defaults.
+     * Creates a new record in resource_limits and resets legacy columns.
      */
     public function migrateResourceLimitsToNewStructure(): bool
     {
@@ -191,37 +235,112 @@ trait HasResourceLimits
         }
 
         return \DB::transaction(function () {
-            // Create new record with current legacy values
-            $legacyValues = [];
-            foreach (array_keys(ResourceLimit::DEFAULTS) as $key) {
-                $legacyValues[$key] = $this->{$key};
-            }
-            $this->resourceLimits()->create($legacyValues);
+            // Map legacy values to new structure, converting defaults to null
+            $legacyDefaults = ResourceLimit::getLegacyDefaults();
+            $legacyToNew = ResourceLimit::getLegacyToNewMapping();
+            $newValues = [];
 
-            // Reset legacy columns to defaults
-            $this->update(ResourceLimit::DEFAULTS);
+            foreach ($legacyToNew as $legacyKey => $newKey) {
+                $currentValue = $this->{$legacyKey};
+                $defaultValue = $legacyDefaults[$legacyKey] ?? null;
+
+                // Normalize memory values: "0m" is equivalent to "0" (legacy default)
+                if (in_array($newKey, ['mem_limit', 'memswap_limit', 'mem_reservation'])) {
+                    $currentValue = $this->normalizeMemoryValueForStorage($currentValue);
+                }
+
+                // If value matches legacy default, convert to null
+                if ($this->isLegacyDefaultValue($currentValue, $defaultValue)) {
+                    $newValues[$newKey] = null;
+                } else {
+                    // Convert cpus from string to float for new structure
+                    if ($newKey === 'cpus' && $currentValue !== null) {
+                        $newValues[$newKey] = (float) $currentValue;
+                    } else {
+                        $newValues[$newKey] = $currentValue;
+                    }
+                }
+            }
+
+            // Always create record during migration
+            $this->resourceLimits()->create($newValues);
+
+            // Reset legacy columns to their original database defaults
+            // Skip the interceptor to avoid overwriting the newly created record
+            $legacyDefaults = ResourceLimit::getLegacyDefaults();
+            $columnsToReset = [];
+            $schema = $this->getConnection()->getSchemaBuilder();
+
+            foreach ($legacyDefaults as $key => $value) {
+                if ($schema->hasColumn($this->getTable(), $key)) {
+                    $columnsToReset[$key] = $value;
+                }
+            }
+
+            if (!empty($columnsToReset)) {
+                $this->update($columnsToReset);
+            }
 
             return true;
         });
     }
 
+
+    /**
+     * Get resource limits formatted for docker-compose.
+     * Returns an array with docker-compose keys (cpus, mem_limit, etc.)
+     * Handles both new and legacy storage patterns.
+     */
+    public function getDockerComposeLimits(): array
+    {
+        $limits = $this->getEffectiveResourceLimits();
+        // Filter out null values to keep docker-compose clean
+        return array_filter($limits, fn($value) => $value !== null);
+    }
+
     /**
      * Save resource limits using the appropriate pattern.
-     * New/fresh resources use the new table, legacy resources continue using direct columns.
+     * Always saves the limits (even if all null) - never deletes records.
      */
     public function saveResourceLimits(array $limits): void
     {
         $source = $this->getResourceLimitsSource();
 
         if ($source === 'new') {
-            // Update existing record in resource_limits table
+            // Update existing record in resource_limits table (uses new column names)
             $this->resourceLimits->update($limits);
         } elseif ($source === 'legacy') {
-            // Update direct columns (legacy pattern)
-            $this->update($limits);
+            // Update direct columns (legacy pattern - map new names to legacy names)
+            $newToLegacy = ResourceLimit::getNewToLegacyMapping();
+            $legacyLimits = [];
+            foreach ($limits as $newKey => $value) {
+                if (isset($newToLegacy[$newKey])) {
+                    // Normalize memory values: convert "0m" to "0" for legacy compatibility
+                    if (in_array($newKey, ['mem_limit', 'memswap_limit', 'mem_reservation'])) {
+                        $value = $this->normalizeMemoryValueForStorage($value);
+                    }
+                    // Convert cpus from float to string for legacy columns
+                    if ($newKey === 'cpus' && $value !== null) {
+                        $value = (string) $value;
+                    }
+                    $legacyLimits[$newToLegacy[$newKey]] = $value;
+                }
+            }
+            $this->update($legacyLimits);
         } else {
-            // Fresh resource - create new record in resource_limits table
-            $this->resourceLimits()->create($limits);
+            // Fresh resource - only create record if at least one limit is set
+            // (Don't create empty records for fresh resources)
+            $hasAnyLimit = false;
+            foreach ($limits as $value) {
+                if ($value !== null) {
+                    $hasAnyLimit = true;
+                    break;
+                }
+            }
+
+            if ($hasAnyLimit) {
+                $this->resourceLimits()->create($limits);
+            }
         }
     }
 }
