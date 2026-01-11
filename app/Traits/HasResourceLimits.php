@@ -340,6 +340,45 @@ trait HasResourceLimits
     }
 
     /**
+     * Count all legacy resources across all model types.
+     * Returns an array with model class basenames as keys and counts as values.
+     * Only includes models that have at least one legacy resource.
+     *
+     * @return array<string, int> Array of model basename => count pairs
+     */
+    public static function countAllLegacyResources(): array
+    {
+        $models = [
+            \App\Models\Application::class,
+            \App\Models\Service::class,
+            \App\Models\ServiceApplication::class,
+            \App\Models\ServiceDatabase::class,
+            \App\Models\StandalonePostgresql::class,
+            \App\Models\StandaloneRedis::class,
+            \App\Models\StandaloneMysql::class,
+            \App\Models\StandaloneMariadb::class,
+            \App\Models\StandaloneMongodb::class,
+            \App\Models\StandaloneClickhouse::class,
+            \App\Models\StandaloneKeydb::class,
+            \App\Models\StandaloneDragonfly::class,
+        ];
+
+        $counts = [];
+        foreach ($models as $model) {
+            $count = $model::query()
+                ->get()
+                ->filter(fn ($resource) => $resource->hasLegacyResourceLimits())
+                ->count();
+
+            if ($count > 0) {
+                $counts[class_basename($model)] = $count;
+            }
+        }
+
+        return $counts;
+    }
+
+    /**
      * Get resource limits formatted for docker-compose.
      * Returns an array with docker-compose keys (cpus, mem_limit, etc.)
      *
