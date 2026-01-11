@@ -356,6 +356,52 @@ trait HasResourceLimits
     }
 
     /**
+     * Static helper to get docker-compose limits for any resource.
+     * Handles both resources with HasResourceLimits trait and legacy resources.
+     *
+     * @param object $resource The resource (Application, StandaloneDatabase, etc.)
+     * @return array Docker-compose limits array (cpus, mem_limit, etc.) with null values filtered out
+     */
+    public static function getDockerComposeLimitsForResource(object $resource): array
+    {
+        // Try new structure first (resources with HasResourceLimits trait)
+        if (method_exists($resource, 'getDockerComposeLimits')) {
+            return $resource->getDockerComposeLimits();
+        }
+
+        // Fallback for resources without trait (legacy direct access - read-only)
+        // TODO: Remove legacy read support in a future version
+        // @deprecated Legacy column access will be removed. All resources should use HasResourceLimits trait.
+        $limits = [];
+
+        if (!is_null($resource->limits_memory ?? null)) {
+            $limits['mem_limit'] = $resource->limits_memory;
+        }
+        if (!is_null($resource->limits_memory_swap ?? null)) {
+            $limits['memswap_limit'] = $resource->limits_memory_swap;
+        }
+        if (!is_null($resource->limits_memory_swappiness ?? null)) {
+            $limits['mem_swappiness'] = $resource->limits_memory_swappiness;
+        }
+        if (!is_null($resource->limits_memory_reservation ?? null)) {
+            $limits['mem_reservation'] = $resource->limits_memory_reservation;
+        }
+        if (!is_null($resource->limits_cpus ?? null)) {
+            $limits['cpus'] = (float) $resource->limits_cpus;
+        }
+        if (!is_null($resource->limits_cpu_shares ?? null)) {
+            $limits['cpu_shares'] = $resource->limits_cpu_shares;
+        }
+        // Use filled() for cpuset to match StartPostgresql behavior (excludes empty strings)
+        if (filled($resource->limits_cpuset ?? null)) {
+            $limits['cpuset'] = $resource->limits_cpuset;
+        }
+
+        // Filter out null values to keep docker-compose clean
+        return array_filter($limits, fn($value) => $value !== null);
+    }
+
+    /**
      * Save resource limits using the new structure.
      *
      * Write path is dead simple:

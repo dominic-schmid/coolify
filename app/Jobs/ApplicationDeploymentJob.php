@@ -2530,25 +2530,12 @@ class ApplicationDeploymentJob implements ShouldBeEncrypted, ShouldQueue
         ];
 
         // Add resource limits (handles both new and legacy storage patterns)
-        if (method_exists($this->application, 'getDockerComposeLimits')) {
-            $limits = $this->application->getDockerComposeLimits();
+        $limits = \App\Traits\HasResourceLimits::getDockerComposeLimitsForResource($this->application);
+        if (!empty($limits)) {
             $docker_compose['services'][$this->container_name] = array_merge(
                 $docker_compose['services'][$this->container_name],
                 $limits
             );
-        } else {
-            // Fallback for applications without trait (legacy direct access - read-only)
-            // TODO: Remove legacy read support in a future version
-            // @deprecated Legacy column access will be removed. All resources should use HasResourceLimits trait.
-            $docker_compose['services'][$this->container_name]['mem_limit'] = $this->application->limits_memory;
-            $docker_compose['services'][$this->container_name]['memswap_limit'] = $this->application->limits_memory_swap;
-            $docker_compose['services'][$this->container_name]['mem_swappiness'] = $this->application->limits_memory_swappiness;
-            $docker_compose['services'][$this->container_name]['mem_reservation'] = $this->application->limits_memory_reservation;
-            $docker_compose['services'][$this->container_name]['cpus'] = (float) $this->application->limits_cpus;
-            $docker_compose['services'][$this->container_name]['cpu_shares'] = $this->application->limits_cpu_shares;
-            if (! is_null($this->application->limits_cpuset)) {
-                $docker_compose['services'][$this->container_name]['cpuset'] = $this->application->limits_cpuset;
-            }
         }
         // Always use .env file
         $docker_compose['services'][$this->container_name]['env_file'] = ['.env'];
