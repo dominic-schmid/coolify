@@ -115,12 +115,6 @@ class StartKeydb
                         'retries' => 10,
                         'start_period' => '5s',
                     ],
-                    'mem_limit' => $this->database->limits_memory,
-                    'memswap_limit' => $this->database->limits_memory_swap,
-                    'mem_swappiness' => $this->database->limits_memory_swappiness,
-                    'mem_reservation' => $this->database->limits_memory_reservation,
-                    'cpus' => (float) $this->database->limits_cpus,
-                    'cpu_shares' => $this->database->limits_cpu_shares,
                 ],
             ],
             'networks' => [
@@ -132,8 +126,24 @@ class StartKeydb
             ],
         ];
 
-        if (! is_null($this->database->limits_cpuset)) {
-            data_set($docker_compose, "services.{$container_name}.cpuset", $this->database->limits_cpuset);
+        // Add resource limits (handles both new and legacy storage patterns)
+        if (method_exists($this->database, 'getDockerComposeLimits')) {
+            $limits = $this->database->getDockerComposeLimits();
+            $docker_compose['services'][$container_name] = array_merge(
+                $docker_compose['services'][$container_name],
+                $limits
+            );
+        } else {
+            // Fallback for databases without trait (legacy direct access)
+            $docker_compose['services'][$container_name]['mem_limit'] = $this->database->limits_memory;
+            $docker_compose['services'][$container_name]['memswap_limit'] = $this->database->limits_memory_swap;
+            $docker_compose['services'][$container_name]['mem_swappiness'] = $this->database->limits_memory_swappiness;
+            $docker_compose['services'][$container_name]['mem_reservation'] = $this->database->limits_memory_reservation;
+            $docker_compose['services'][$container_name]['cpus'] = (float) $this->database->limits_cpus;
+            $docker_compose['services'][$container_name]['cpu_shares'] = $this->database->limits_cpu_shares;
+            if (! is_null($this->database->limits_cpuset)) {
+                $docker_compose['services'][$container_name]['cpuset'] = $this->database->limits_cpuset;
+            }
         }
 
         if ($this->database->destination->server->isLogDrainEnabled() && $this->database->isLogDrainEnabled()) {
