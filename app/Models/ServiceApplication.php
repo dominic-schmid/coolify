@@ -2,13 +2,14 @@
 
 namespace App\Models;
 
+use App\Traits\HasResourceLimits;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class ServiceApplication extends BaseModel
 {
-    use HasFactory, SoftDeletes;
+    use HasFactory, HasResourceLimits, SoftDeletes;
 
     protected $guarded = [];
 
@@ -28,7 +29,7 @@ class ServiceApplication extends BaseModel
 
     public function restart()
     {
-        $container_id = $this->name.'-'.$this->service->uuid;
+        $container_id = $this->name . '-' . $this->service->uuid;
         instant_remote_process(["docker restart {$container_id}"], $this->service->server);
     }
 
@@ -93,7 +94,7 @@ class ServiceApplication extends BaseModel
 
     public function workdir()
     {
-        return service_configuration_dir()."/{$this->service->uuid}";
+        return service_configuration_dir() . "/{$this->service->uuid}";
     }
 
     public function serviceType()
@@ -131,9 +132,9 @@ class ServiceApplication extends BaseModel
     public function fqdns(): Attribute
     {
         return Attribute::make(
-            get: fn () => is_null($this->fqdn)
-                ? []
-                : explode(',', $this->fqdn),
+            get: fn() => is_null($this->fqdn)
+            ? []
+            : explode(',', $this->fqdn),
         );
     }
 
@@ -145,8 +146,8 @@ class ServiceApplication extends BaseModel
     {
         try {
             // Ensure URL has a scheme for proper parsing
-            if (! str_starts_with($url, 'http://') && ! str_starts_with($url, 'https://')) {
-                $url = 'http://'.$url;
+            if (!str_starts_with($url, 'http://') && !str_starts_with($url, 'https://')) {
+                $url = 'http://' . $url;
             }
 
             $parsed = parse_url($url);
@@ -206,14 +207,14 @@ class ServiceApplication extends BaseModel
             // Parse the Docker Compose to find SERVICE_URL/SERVICE_FQDN variables DIRECTLY DECLARED
             // for this specific service container (not just referenced from other containers)
             $dockerComposeRaw = data_get($this->service, 'docker_compose_raw');
-            if (! $dockerComposeRaw) {
+            if (!$dockerComposeRaw) {
                 // Fall back to service-level port if no compose file
                 return $this->service->getRequiredPort();
             }
 
             $dockerCompose = \Symfony\Component\Yaml\Yaml::parse($dockerComposeRaw);
             $serviceConfig = data_get($dockerCompose, "services.{$this->name}");
-            if (! $serviceConfig) {
+            if (!$serviceConfig) {
                 return $this->service->getRequiredPort();
             }
 
