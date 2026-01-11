@@ -10,34 +10,38 @@ class ResourceLimits extends Component
 {
     use AuthorizesRequests;
 
+    // Default values for resource limits
+    private const DEFAULT_CPU_LIMIT = 0.0;
+    private const DEFAULT_CPU_SET = '0';
+    private const DEFAULT_CPU_SHARES = 1024;
+    private const DEFAULT_MEMORY_SWAPPINESS = 60;
+    private const DEFAULT_MEMORY_LIMIT = '0';
+    private const DEFAULT_MEMORY_SWAP = '0';
+    private const DEFAULT_MEMORY_RESERVATION = '0';
+
     public $resource;
 
     // Explicit properties for form binding
     public ?string $limitsCpus = null;
 
     public ?string $limitsCpuset = null;
-
     public ?int $limitsCpuShares = null;
-
-    public string $limitsMemory;
-
-    public string $limitsMemorySwap;
-
-    public int $limitsMemorySwappiness;
-
-    public string $limitsMemoryReservation;
+    public ?string $limitsMemory = null;
+    public ?string $limitsMemorySwap = null;
+    public ?int $limitsMemorySwappiness = null;
+    public ?string $limitsMemoryReservation = null;
 
     // Storage pattern tracking
     public string $limitsSource = 'fresh'; // 'new', 'legacy', or 'fresh'
 
     protected $rules = [
-        'limitsMemory' => 'required|string',
-        'limitsMemorySwap' => 'required|string',
-        'limitsMemorySwappiness' => 'required|integer|min:0|max:100',
-        'limitsMemoryReservation' => 'required|string',
-        'limitsCpus' => 'nullable',
-        'limitsCpuset' => 'nullable',
-        'limitsCpuShares' => 'nullable',
+        'limitsMemory' => 'nullable|string',
+        'limitsMemorySwap' => 'nullable|string',
+        'limitsMemorySwappiness' => 'nullable|integer|min:0|max:100',
+        'limitsMemoryReservation' => 'nullable|string',
+        'limitsCpus' => 'nullable|numeric|min:0|max:1024',
+        'limitsCpuset' => 'nullable|string',
+        'limitsCpuShares' => 'nullable|integer|min:0|max:8192',
     ];
 
     protected $validationAttributes = [
@@ -121,26 +125,26 @@ class ResourceLimits extends Component
      */
     private function normalizeProperties(): void
     {
-        if (!$this->limitsMemory) {
-            $this->limitsMemory = '0';
+        if (empty($this->limitsMemory)) {
+            $this->limitsMemory = self::DEFAULT_MEMORY_LIMIT;
         }
-        if (!$this->limitsMemorySwap) {
-            $this->limitsMemorySwap = '0';
+        if (empty($this->limitsMemorySwap)) {
+            $this->limitsMemorySwap = self::DEFAULT_MEMORY_SWAP;
         }
-        if (is_null($this->limitsMemorySwappiness)) {
-            $this->limitsMemorySwappiness = 60;
+        if (empty($this->limitsMemoryReservation)) {
+            $this->limitsMemoryReservation = self::DEFAULT_MEMORY_RESERVATION;
         }
-        if (!$this->limitsMemoryReservation) {
-            $this->limitsMemoryReservation = '0';
+        if ($this->limitsCpus === null) {
+            $this->limitsCpus = self::DEFAULT_CPU_LIMIT;
         }
-        if (!$this->limitsCpus) {
-            $this->limitsCpus = '0';
+        if (empty($this->limitsCpuset)) {
+            $this->limitsCpuset = self::DEFAULT_CPU_SET;
         }
-        if ($this->limitsCpuset === '') {
-            $this->limitsCpuset = null;
+        if ($this->limitsCpuShares === null) {
+            $this->limitsCpuShares = self::DEFAULT_CPU_SHARES;
         }
-        if (is_null($this->limitsCpuShares)) {
-            $this->limitsCpuShares = 1024;
+        if ($this->limitsMemorySwappiness === null) {
+            $this->limitsMemorySwappiness = self::DEFAULT_MEMORY_SWAPPINESS;
         }
     }
 
@@ -188,7 +192,7 @@ class ResourceLimits extends Component
 
             $this->dispatch('success', 'Resource limits updated.');
         } catch (\Throwable $e) {
-            return handleError($e, $this);
+            handleError($e, $this);
         }
     }
 
@@ -223,7 +227,7 @@ class ResourceLimits extends Component
                 $this->dispatch('error', 'Migration failed. The resource may already be migrated or has no legacy limits.');
             }
         } catch (\Throwable $e) {
-            return handleError($e, $this);
+            handleError($e, $this);
         }
     }
 

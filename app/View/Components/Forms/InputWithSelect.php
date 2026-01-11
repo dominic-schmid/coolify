@@ -8,11 +8,15 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\View\Component;
 use Visus\Cuid2\Cuid2;
 
-class Input extends Component
+class InputWithSelect extends Component
 {
     public ?string $modelBinding = null;
 
     public ?string $htmlId = null;
+
+    public ?string $combinedBinding = null;
+
+    public ?string $structuredBinding = null;
 
     public function __construct(
         public ?string $id = null,
@@ -20,21 +24,23 @@ class Input extends Component
         public ?string $type = 'text',
         public ?string $value = null,
         public ?string $label = null,
+        public array $options = [],
+        public ?string $defaultOption = null,
         public bool $required = false,
         public bool $disabled = false,
         public bool $readonly = false,
         public ?string $helper = null,
-        public bool $allowToPeak = true,
-        public bool $isMultiline = false,
+        public ?string $placeholder = null,
         public string $defaultClass = 'input',
         public string $autocomplete = 'off',
         public ?int $minlength = null,
         public ?int $maxlength = null,
+        public ?float $min = null,
+        public ?float $max = null,
         public bool $autofocus = false,
         public ?string $canGate = null,
         public mixed $canResource = null,
         public bool $autoDisable = true,
-        public ?string $suffix = null,
     ) {
         // Handle authorization-based disabling
         if ($this->canGate && $this->canResource && $this->autoDisable) {
@@ -69,11 +75,16 @@ class Input extends Component
         if (is_null($this->name)) {
             $this->name = $this->modelBinding !== 'null' ? $this->modelBinding : (string) $this->id;
         }
-        if ($this->type === 'password') {
-            $this->defaultClass = $this->defaultClass . '  pr-[2.8rem]';
+
+        if ($this->modelBinding && $this->modelBinding !== 'null') {
+            $this->combinedBinding = $this->modelBinding;
+            $this->structuredBinding = $this->modelBinding . 'Structured';
         }
 
-        // $this->label = Str::title($this->label);
-        return view('components.forms.input');
+        if (is_null($this->defaultOption) && !empty($this->options)) {
+            $this->defaultOption = array_key_first($this->options);
+        }
+
+        return view('components.forms.input-with-select');
     }
 }
