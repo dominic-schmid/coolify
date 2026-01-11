@@ -246,6 +246,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('/terminal', ExecuteContainerCommand::class)->name('project.service.command')->middleware('can.access.terminal');
         Route::get('/{stack_service_uuid}/backups', ServiceDatabaseBackups::class)->name('project.service.database.backups');
         Route::get('/{stack_service_uuid}/import', ServiceIndex::class)->name('project.service.database.import')->middleware('can.update.resource');
+        Route::get('/{stack_service_uuid}/resource-limits', ServiceIndex::class)->name('project.service.resource-limits');
         Route::get('/{stack_service_uuid}', ServiceIndex::class)->name('project.service.index');
         Route::get('/tasks/{task_uuid}', ScheduledTaskShow::class)->name('project.service.scheduled-tasks');
     });

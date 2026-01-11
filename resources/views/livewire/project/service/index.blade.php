@@ -11,7 +11,10 @@
                     href="{{ route('project.service.configuration', [...$parameters, 'stack_service_uuid' => null]) }}">
                     <button><- Back</button>
                 </a>
-                <a class="menu-item menu-item-active" href="#">General</a>
+                <a class="menu-item" wire:current.exact="menu-item-active" {{ wireNavigate() }}
+                    href="{{ route('project.service.index', $parameters) }}">General</a>
+                <a class="menu-item" wire:current.exact="menu-item-active" {{ wireNavigate() }}
+                    href="{{ route('project.service.resource-limits', $parameters) }}">Resource Limits</a>
             </div>
         @endif
         <div class="w-full">
@@ -20,6 +23,9 @@
                     {{ data_get_str($service, 'name')->limit(10) }} >
                     {{ data_get_str($serviceApplication, 'name')->limit(10) }} | Coolify
                 </x-slot>
+                @if ($currentRoute === 'project.service.resource-limits')
+                    <livewire:project.shared.resource-limits :resource="$serviceApplication" />
+                @else
                 <form wire:submit='submitApplication'>
                     <div class="flex items-center gap-2 pb-4">
                         @if ($serviceApplication->human_name)
@@ -168,6 +174,7 @@
                         </template>
                     </div>
                 @endif
+                @endif
             @elseif ($resourceType === 'database')
                 <x-slot:title>
                     {{ data_get_str($service, 'name')->limit(10) }} >
@@ -175,6 +182,8 @@
                 </x-slot>
                 @if ($currentRoute === 'project.service.database.import')
                     <livewire:project.database.import :resource="$serviceDatabase" :key="'import-' . $serviceDatabase->uuid" />
+                @elseif ($currentRoute === 'project.service.resource-limits')
+                    <livewire:project.shared.resource-limits :resource="$serviceDatabase" />
                 @else
                     <form wire:submit='submitDatabase'>
                         <div class="flex items-center gap-2 pb-4">

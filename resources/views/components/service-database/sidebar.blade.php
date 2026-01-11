@@ -13,6 +13,8 @@
     </a>
     <a class="menu-item" wire:current.exact="menu-item-active" {{ wireNavigate() }}
         href="{{ route('project.service.index', $parameters) }}">General</a>
+    <a class="menu-item" wire:current.exact="menu-item-active" {{ wireNavigate() }}
+        href="{{ route('project.service.resource-limits', $parameters) }}">Resource Limits</a>
     @if ($serviceDatabase?->isBackupSolutionAvailable() || $serviceDatabase?->is_migrated)
         <a class="menu-item" wire:current.exact="menu-item-active" {{ wireNavigate() }}
             href="{{ route('project.service.database.backups', $parameters) }}">Backups</a>
