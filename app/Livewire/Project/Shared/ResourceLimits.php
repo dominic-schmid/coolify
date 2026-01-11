@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Project\Shared;
 
+use App\Models\ResourceLimit;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Livewire\Component;
 
@@ -11,7 +12,7 @@ class ResourceLimits extends Component
 
     public $resource;
 
-    // Explicit properties
+    // Explicit properties for form binding
     public ?string $limitsCpus = null;
 
     public ?string $limitsCpuset = null;
@@ -25,6 +26,9 @@ class ResourceLimits extends Component
     public int $limitsMemorySwappiness;
 
     public string $limitsMemoryReservation;
+
+    // Storage pattern tracking
+    public string $limitsSource = 'fresh'; // 'new', 'legacy', or 'fresh'
 
     protected $rules = [
         'limitsMemory' => 'required|string',
@@ -46,37 +50,114 @@ class ResourceLimits extends Component
         'limitsCpuShares' => 'cpu shares',
     ];
 
-    /**
-     * Sync data between component properties and model
-     *
-     * @param  bool  $toModel  If true, sync FROM properties TO model. If false, sync FROM model TO properties.
-     */
-    private function syncData(bool $toModel = false): void
+    public function mount()
     {
-        if ($toModel) {
-            // Sync TO model (before save)
-            $this->resource->limits_cpus = $this->limitsCpus;
-            $this->resource->limits_cpuset = $this->limitsCpuset;
-            $this->resource->limits_cpu_shares = $this->limitsCpuShares;
-            $this->resource->limits_memory = $this->limitsMemory;
-            $this->resource->limits_memory_swap = $this->limitsMemorySwap;
-            $this->resource->limits_memory_swappiness = $this->limitsMemorySwappiness;
-            $this->resource->limits_memory_reservation = $this->limitsMemoryReservation;
+        $this->loadLimits();
+    }
+
+    /**
+     * Load resource limits from the appropriate source.
+     */
+    private function loadLimits(): void
+    {
+        // Check if the resource uses the HasResourceLimits trait
+        if (method_exists($this->resource, 'getResourceLimitsSource')) {
+            $this->limitsSource = $this->resource->getResourceLimitsSource();
+
+            if ($this->limitsSource === 'new') {
+                // Load from resource_limits table
+                $limits = $this->resource->resourceLimits;
+                $this->limitsCpus = $limits->limits_cpus;
+                $this->limitsCpuset = $limits->limits_cpuset;
+                $this->limitsCpuShares = $limits->limits_cpu_shares;
+                $this->limitsMemory = $limits->limits_memory;
+                $this->limitsMemorySwap = $limits->limits_memory_swap;
+                $this->limitsMemorySwappiness = $limits->limits_memory_swappiness;
+                $this->limitsMemoryReservation = $limits->limits_memory_reservation;
+            } elseif ($this->limitsSource === 'legacy') {
+                // Load from direct columns (legacy pattern)
+                $this->syncFromLegacyColumns();
+            } else {
+                // Fresh resource - use defaults
+                $this->applyDefaults();
+            }
         } else {
-            // Sync FROM model (on load/refresh)
-            $this->limitsCpus = $this->resource->limits_cpus;
-            $this->limitsCpuset = $this->resource->limits_cpuset;
-            $this->limitsCpuShares = $this->resource->limits_cpu_shares;
-            $this->limitsMemory = $this->resource->limits_memory;
-            $this->limitsMemorySwap = $this->resource->limits_memory_swap;
-            $this->limitsMemorySwappiness = $this->resource->limits_memory_swappiness;
-            $this->limitsMemoryReservation = $this->resource->limits_memory_reservation;
+            // Fallback for resources without the trait (shouldn't happen, but safe)
+            $this->syncFromLegacyColumns();
+            $this->limitsSource = 'legacy';
         }
     }
 
-    public function mount()
+    /**
+     * Sync properties from legacy direct columns on the resource.
+     */
+    private function syncFromLegacyColumns(): void
     {
-        $this->syncData(false);
+        $this->limitsCpus = $this->resource->limits_cpus;
+        $this->limitsCpuset = $this->resource->limits_cpuset;
+        $this->limitsCpuShares = $this->resource->limits_cpu_shares;
+        $this->limitsMemory = $this->resource->limits_memory;
+        $this->limitsMemorySwap = $this->resource->limits_memory_swap;
+        $this->limitsMemorySwappiness = $this->resource->limits_memory_swappiness;
+        $this->limitsMemoryReservation = $this->resource->limits_memory_reservation;
+    }
+
+    /**
+     * Apply default values to properties.
+     */
+    private function applyDefaults(): void
+    {
+        $this->limitsCpus = ResourceLimit::DEFAULTS['limits_cpus'];
+        $this->limitsCpuset = ResourceLimit::DEFAULTS['limits_cpuset'];
+        $this->limitsCpuShares = ResourceLimit::DEFAULTS['limits_cpu_shares'];
+        $this->limitsMemory = ResourceLimit::DEFAULTS['limits_memory'];
+        $this->limitsMemorySwap = ResourceLimit::DEFAULTS['limits_memory_swap'];
+        $this->limitsMemorySwappiness = ResourceLimit::DEFAULTS['limits_memory_swappiness'];
+        $this->limitsMemoryReservation = ResourceLimit::DEFAULTS['limits_memory_reservation'];
+    }
+
+    /**
+     * Normalize properties with defaults before saving.
+     */
+    private function normalizeProperties(): void
+    {
+        if (!$this->limitsMemory) {
+            $this->limitsMemory = '0';
+        }
+        if (!$this->limitsMemorySwap) {
+            $this->limitsMemorySwap = '0';
+        }
+        if (is_null($this->limitsMemorySwappiness)) {
+            $this->limitsMemorySwappiness = 60;
+        }
+        if (!$this->limitsMemoryReservation) {
+            $this->limitsMemoryReservation = '0';
+        }
+        if (!$this->limitsCpus) {
+            $this->limitsCpus = '0';
+        }
+        if ($this->limitsCpuset === '') {
+            $this->limitsCpuset = null;
+        }
+        if (is_null($this->limitsCpuShares)) {
+            $this->limitsCpuShares = 1024;
+        }
+    }
+
+    /**
+     * Get the current property values as an array.
+     */
+    private function getLimitsArray(): array
+    {
+        return [
+            'limits_cpus' => $this->limitsCpus,
+            'limits_cpuset' => $this->limitsCpuset,
+            'limits_cpu_shares' => $this->limitsCpuShares,
+            'limits_memory' => $this->limitsMemory,
+            'limits_memory_swap' => $this->limitsMemorySwap,
+            'limits_memory_swappiness' => $this->limitsMemorySwappiness,
+            'limits_memory_reservation' => $this->limitsMemoryReservation,
+        ];
     }
 
     public function submit()
@@ -84,36 +165,94 @@ class ResourceLimits extends Component
         try {
             $this->authorize('update', $this->resource);
 
-            // Apply default values to properties
-            if (! $this->limitsMemory) {
-                $this->limitsMemory = '0';
-            }
-            if (! $this->limitsMemorySwap) {
-                $this->limitsMemorySwap = '0';
-            }
-            if (is_null($this->limitsMemorySwappiness)) {
-                $this->limitsMemorySwappiness = 60;
-            }
-            if (! $this->limitsMemoryReservation) {
-                $this->limitsMemoryReservation = '0';
-            }
-            if (! $this->limitsCpus) {
-                $this->limitsCpus = '0';
-            }
-            if ($this->limitsCpuset === '') {
-                $this->limitsCpuset = null;
-            }
-            if (is_null($this->limitsCpuShares)) {
-                $this->limitsCpuShares = 1024;
-            }
-
+            $this->normalizeProperties();
             $this->validate();
 
-            $this->syncData(true);
-            $this->resource->save();
+            if (method_exists($this->resource, 'saveResourceLimits')) {
+                // Use the trait's save method (handles new/legacy/fresh automatically)
+                $this->resource->saveResourceLimits($this->getLimitsArray());
+
+                // Refresh source tracking
+                $this->limitsSource = $this->resource->getResourceLimitsSource();
+            } else {
+                // Fallback to legacy direct column save
+                $this->resource->limits_cpus = $this->limitsCpus;
+                $this->resource->limits_cpuset = $this->limitsCpuset;
+                $this->resource->limits_cpu_shares = $this->limitsCpuShares;
+                $this->resource->limits_memory = $this->limitsMemory;
+                $this->resource->limits_memory_swap = $this->limitsMemorySwap;
+                $this->resource->limits_memory_swappiness = $this->limitsMemorySwappiness;
+                $this->resource->limits_memory_reservation = $this->limitsMemoryReservation;
+                $this->resource->save();
+            }
+
             $this->dispatch('success', 'Resource limits updated.');
         } catch (\Throwable $e) {
             return handleError($e, $this);
         }
+    }
+
+    /**
+     * Migrate legacy resource limits to the new table structure.
+     */
+    public function migrateToNewStructure()
+    {
+        try {
+            $this->authorize('update', $this->resource);
+
+            if ($this->limitsSource !== 'legacy') {
+                $this->dispatch('error', 'This resource is not using legacy storage.');
+
+                return;
+            }
+
+            if (!method_exists($this->resource, 'migrateResourceLimitsToNewStructure')) {
+                $this->dispatch('error', 'This resource does not support migration.');
+
+                return;
+            }
+
+            $success = $this->resource->migrateResourceLimitsToNewStructure();
+
+            if ($success) {
+                // Reload the resource and limits
+                $this->resource->refresh();
+                $this->loadLimits();
+                $this->dispatch('success', 'Resource limits migrated to new structure successfully.');
+            } else {
+                $this->dispatch('error', 'Migration failed. The resource may already be migrated or has no legacy limits.');
+            }
+        } catch (\Throwable $e) {
+            return handleError($e, $this);
+        }
+    }
+
+    /**
+     * Check if the current resource uses legacy storage pattern.
+     */
+    public function isLegacyStorage(): bool
+    {
+        return $this->limitsSource === 'legacy';
+    }
+
+    /**
+     * Check if the current resource uses the new storage pattern.
+     */
+    public function isNewStorage(): bool
+    {
+        return $this->limitsSource === 'new';
+    }
+
+    /**
+     * Check if the current resource is fresh (no limits configured yet).
+     */
+    public function isFreshStorage(): bool
+    {
+        return $this->limitsSource === 'fresh';
+    }
+
+    public function render()
+    {
+        return view('livewire.project.shared.resource-limits');
     }
 }

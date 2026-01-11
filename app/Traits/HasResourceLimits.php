@@ -51,7 +51,7 @@ trait HasResourceLimits
     public function hasLegacyResourceLimits(): bool
     {
         // Check if this model has the legacy columns
-        if (! $this->hasLegacyResourceLimitColumns()) {
+        if (!$this->hasLegacyResourceLimitColumns()) {
             return false;
         }
 
@@ -132,7 +132,7 @@ trait HasResourceLimits
      */
     public function migrateResourceLimitsToNewStructure(): bool
     {
-        if (! $this->hasLegacyResourceLimits()) {
+        if (!$this->hasLegacyResourceLimits()) {
             return false;
         }
 
