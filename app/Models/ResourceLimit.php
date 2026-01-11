@@ -25,7 +25,7 @@ class ResourceLimit extends Model
      */
     public const DEFAULTS = [
         'limits_cpus' => '0',
-        'limits_cpuset' => null,
+        'limits_cpuset' => '0',
         'limits_cpu_shares' => 1024,
         'limits_memory' => '0',
         'limits_memory_swap' => '0',

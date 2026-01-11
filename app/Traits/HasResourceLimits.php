@@ -98,28 +98,21 @@ trait HasResourceLimits
 
         if ($source === 'new') {
             $limits = $this->resourceLimits;
+            $result = [];
+            foreach (array_keys(ResourceLimit::DEFAULTS) as $key) {
+                $result[$key] = $limits->{$key};
+            }
 
-            return [
-                'limits_cpus' => $limits->limits_cpus,
-                'limits_cpuset' => $limits->limits_cpuset,
-                'limits_cpu_shares' => $limits->limits_cpu_shares,
-                'limits_memory' => $limits->limits_memory,
-                'limits_memory_swap' => $limits->limits_memory_swap,
-                'limits_memory_swappiness' => $limits->limits_memory_swappiness,
-                'limits_memory_reservation' => $limits->limits_memory_reservation,
-            ];
+            return $result;
         }
 
         if ($source === 'legacy') {
-            return [
-                'limits_cpus' => $this->limits_cpus,
-                'limits_cpuset' => $this->limits_cpuset,
-                'limits_cpu_shares' => $this->limits_cpu_shares,
-                'limits_memory' => $this->limits_memory,
-                'limits_memory_swap' => $this->limits_memory_swap,
-                'limits_memory_swappiness' => $this->limits_memory_swappiness,
-                'limits_memory_reservation' => $this->limits_memory_reservation,
-            ];
+            $result = [];
+            foreach (array_keys(ResourceLimit::DEFAULTS) as $key) {
+                $result[$key] = $this->{$key};
+            }
+
+            return $result;
         }
 
         // Fresh - return defaults
@@ -142,26 +135,14 @@ trait HasResourceLimits
 
         return \DB::transaction(function () {
             // Create new record with current legacy values
-            $this->resourceLimits()->create([
-                'limits_cpus' => $this->limits_cpus,
-                'limits_cpuset' => $this->limits_cpuset,
-                'limits_cpu_shares' => $this->limits_cpu_shares,
-                'limits_memory' => $this->limits_memory,
-                'limits_memory_swap' => $this->limits_memory_swap,
-                'limits_memory_swappiness' => $this->limits_memory_swappiness,
-                'limits_memory_reservation' => $this->limits_memory_reservation,
-            ]);
+            $legacyValues = [];
+            foreach (array_keys(ResourceLimit::DEFAULTS) as $key) {
+                $legacyValues[$key] = $this->{$key};
+            }
+            $this->resourceLimits()->create($legacyValues);
 
             // Reset legacy columns to defaults
-            $this->update([
-                'limits_cpus' => ResourceLimit::DEFAULTS['limits_cpus'],
-                'limits_cpuset' => ResourceLimit::DEFAULTS['limits_cpuset'],
-                'limits_cpu_shares' => ResourceLimit::DEFAULTS['limits_cpu_shares'],
-                'limits_memory' => ResourceLimit::DEFAULTS['limits_memory'],
-                'limits_memory_swap' => ResourceLimit::DEFAULTS['limits_memory_swap'],
-                'limits_memory_swappiness' => ResourceLimit::DEFAULTS['limits_memory_swappiness'],
-                'limits_memory_reservation' => ResourceLimit::DEFAULTS['limits_memory_reservation'],
-            ]);
+            $this->update(ResourceLimit::DEFAULTS);
 
             return true;
         });
