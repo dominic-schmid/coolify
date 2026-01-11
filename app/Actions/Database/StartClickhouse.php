@@ -76,7 +76,9 @@ class StartClickhouse
                 $limits
             );
         } else {
-            // Fallback for databases without trait (legacy direct access)
+            // Fallback for databases without trait (legacy direct access - read-only)
+            // TODO: Remove legacy read support in a future version
+            // @deprecated Legacy column access will be removed. All databases should use HasResourceLimits trait.
             $docker_compose['services'][$container_name]['mem_limit'] = $this->database->limits_memory;
             $docker_compose['services'][$container_name]['memswap_limit'] = $this->database->limits_memory_swap;
             $docker_compose['services'][$container_name]['mem_swappiness'] = $this->database->limits_memory_swappiness;

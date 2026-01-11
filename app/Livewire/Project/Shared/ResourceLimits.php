@@ -53,20 +53,14 @@ class ResourceLimits extends Component
      */
     private function loadLimits(): void
     {
-        if (method_exists($this->resource, 'getResourceLimitsSource')) {
-            $this->limitsSource = $this->resource->getResourceLimitsSource();
+        $this->limitsSource = $this->resource->getResourceLimitsSource();
 
-            if ($this->limitsSource === 'new') {
-                $this->loadFromNewStructure();
-            } elseif ($this->limitsSource === 'legacy') {
-                $this->loadFromLegacyColumns();
-            } else {
-                $this->loadFromFresh();
-            }
-        } else {
-            // Fallback for resources without the trait
+        if ($this->limitsSource === 'new') {
+            $this->loadFromNewStructure();
+        } elseif ($this->limitsSource === 'legacy') {
             $this->loadFromLegacyColumns();
-            $this->limitsSource = 'legacy';
+        } else {
+            $this->loadFromFresh();
         }
     }
 
@@ -88,9 +82,16 @@ class ResourceLimits extends Component
     /**
      * Load limits from direct columns on the resource model (legacy pattern).
      * Normalizes '0' memory values to '0m' for UI compatibility.
+     *
+     * This method respects the current storage state - reads from legacy columns
+     * which are read-only. Users must migrate to edit these values.
+     *
+     * @deprecated Legacy read support will be removed in a future version.
+     *             All resources should be migrated to the new structure.
      */
     private function loadFromLegacyColumns(): void
     {
+        // Read from legacy columns (read-only access)
         $this->limitsCpus = $this->resource->limits_cpus;
         $this->limitsCpuset = $this->resource->limits_cpuset;
         $this->limitsCpuShares = $this->resource->limits_cpu_shares;
@@ -138,22 +139,38 @@ class ResourceLimits extends Component
     private function getLimitsArray(): array
     {
         // Return array with new docker-compose column names
-        // The trait will handle mapping to legacy names if needed
         return [
-            'cpus' => $this->limitsCpus,
-            'cpuset' => $this->limitsCpuset,
-            'cpu_shares' => $this->limitsCpuShares,
-            'mem_limit' => $this->limitsMemory,
-            'memswap_limit' => $this->limitsMemorySwap,
-            'mem_swappiness' => $this->limitsMemorySwappiness,
-            'mem_reservation' => $this->limitsMemoryReservation,
+            'cpus' => $this->normalizeForDatabase($this->limitsCpus),
+            'cpuset' => $this->normalizeForDatabase($this->limitsCpuset),
+            'cpu_shares' => $this->normalizeForDatabase($this->limitsCpuShares),
+            'mem_limit' => $this->normalizeForDatabase($this->limitsMemory),
+            'memswap_limit' => $this->normalizeForDatabase($this->limitsMemorySwap),
+            'mem_swappiness' => $this->normalizeForDatabase($this->limitsMemorySwappiness),
+            'mem_reservation' => $this->normalizeForDatabase($this->limitsMemoryReservation),
         ];
+    }
+
+    /**
+     * Normalize value for database storage - convert empty strings to null.
+     * Livewire sends empty strings for cleared inputs, but database should store null.
+     */
+    private function normalizeForDatabase($value)
+    {
+        if ($value === '' || $value === null) {
+            return null;
+        }
+        return $value;
     }
 
     public function submit()
     {
         try {
             $this->authorize('update', $this->resource);
+
+            if ($this->limitsSource === 'legacy') {
+                $this->dispatch('error', 'Please migrate to new structure before editing resource limits.');
+                return;
+            }
 
             $this->validate();
             $this->saveToCurrentStorage();
@@ -166,20 +183,13 @@ class ResourceLimits extends Component
     }
 
     /**
-     * Save limits to the correct storage location based on current storage type.
+     * Save limits to the new structure.
+     * Write path is simple: just call saveResourceLimits() with the limits array.
+     * Legacy resources will throw error (handled in submit()).
      */
     private function saveToCurrentStorage(): void
     {
-        $limits = $this->getLimitsArray();
-
-        if (method_exists($this->resource, 'saveResourceLimits')) {
-            $this->resource->saveResourceLimits($limits);
-        } else {
-            foreach ($limits as $key => $value) {
-                $this->resource->{$key} = $value;
-            }
-            $this->resource->save();
-        }
+        $this->resource->saveResourceLimits($this->getLimitsArray());
     }
 
     /**
@@ -188,7 +198,7 @@ class ResourceLimits extends Component
     private function updateUIFromStorage(): void
     {
         // Clear relationship cache to ensure fresh data is loaded
-        if (method_exists($this->resource, 'resourceLimits') && $this->resource->relationLoaded('resourceLimits')) {
+        if ($this->resource->relationLoaded('resourceLimits')) {
             $this->resource->unsetRelation('resourceLimits');
         }
 
@@ -205,12 +215,6 @@ class ResourceLimits extends Component
 
             if ($this->limitsSource !== 'legacy') {
                 $this->dispatch('error', 'This resource is not using legacy storage.');
-
-                return;
-            }
-
-            if (!method_exists($this->resource, 'migrateResourceLimitsToNewStructure')) {
-                $this->dispatch('error', 'This resource does not support migration.');
 
                 return;
             }
@@ -251,6 +255,15 @@ class ResourceLimits extends Component
     public function isFreshStorage(): bool
     {
         return $this->limitsSource === 'fresh';
+    }
+
+    /**
+     * Check if the resource limits can be saved.
+     * Legacy resources are read-only and must be migrated first.
+     */
+    public function canSave(): bool
+    {
+        return $this->limitsSource !== 'legacy';
     }
 
     public function render()

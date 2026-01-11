@@ -1106,28 +1106,25 @@ class ApplicationsController extends Controller
             $application->environment_id = $environment->id;
 
             // Extract legacy limit fields before saving (so they don't go to legacy columns)
-            // Only extract if saveLegacyLimitsToNewStructure exists - otherwise keep for legacy storage
+            // TODO: Remove legacy API parameter support (limits_*) in a future version.
+            //       Use new docker-compose field names (cpus, mem_limit, etc.) instead.
             $legacyLimitFields = ['limits_memory', 'limits_memory_swap', 'limits_memory_swappiness',
                                  'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares'];
             $legacyLimits = [];
-            $hasSaveLegacyMethod = method_exists($application, 'saveLegacyLimitsToNewStructure');
 
-            // Check if method exists before extracting fields
-            if ($hasSaveLegacyMethod) {
-                foreach ($legacyLimitFields as $field) {
-                    if ($request->has($field)) {
-                        $legacyLimits[$field] = $request->input($field);
-                        // Remove from request so it doesn't get saved to legacy column
-                        $request->offsetUnset($field);
-                        unset($application->attributes[$field]);
-                    }
+            foreach ($legacyLimitFields as $field) {
+                if ($request->has($field)) {
+                    $legacyLimits[$field] = $request->input($field);
+                    // Remove from request so it doesn't get saved to legacy column
+                    $request->offsetUnset($field);
+                    unset($application->attributes[$field]);
                 }
             }
 
             $application->save();
 
             // Save legacy limits to new structure if present
-            if (!empty($legacyLimits) && $hasSaveLegacyMethod) {
+            if (!empty($legacyLimits)) {
                 $application->saveLegacyLimitsToNewStructure($legacyLimits);
             }
 
@@ -2420,59 +2417,49 @@ class ApplicationsController extends Controller
             data_set($data, 'docker_compose_domains', json_encode($dockerComposeDomainsJson));
         }
 
-        // Check current storage pattern - update uses whatever is currently in use
+        // Handle resource limits - always use new structure
+        // TODO: Remove legacy API parameter support (limits_*) in a future version.
+        //       Use new docker-compose field names (cpus, mem_limit, etc.) instead.
         $legacyLimitFields = ['limits_memory', 'limits_memory_swap', 'limits_memory_swappiness',
                              'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares'];
 
-        if (method_exists($application, 'getResourceLimitsSource')) {
-            $currentSource = $application->getResourceLimitsSource();
+        // Extract limit fields from data and convert to new structure
+        $newLimits = [];
+        $legacyToNew = \App\Models\ResourceLimit::getLegacyToNewMapping();
 
-            if ($currentSource === 'new') {
-                // Resource uses new structure - convert legacy field names to new names and save
-                $newLimits = [];
-                $legacyToNew = \App\Models\ResourceLimit::getLegacyToNewMapping();
-
-                foreach ($legacyLimitFields as $legacyField) {
-                    if (isset($data[$legacyField])) {
-                        $newKey = $legacyToNew[$legacyField] ?? null;
-                        if ($newKey) {
-                            $value = $data[$legacyField];
-                            // Convert cpus from string to float for new structure
-                            if ($newKey === 'cpus' && $value !== null) {
-                                $value = (float) $value;
-                            }
-                            $newLimits[$newKey] = $value;
-                        }
-                        // Remove from data so it doesn't get saved to legacy column
-                        unset($data[$legacyField]);
+        foreach ($legacyLimitFields as $legacyField) {
+            if (isset($data[$legacyField])) {
+                $newKey = $legacyToNew[$legacyField] ?? null;
+                if ($newKey) {
+                    $value = $data[$legacyField];
+                    // Convert cpus from string to float for new structure
+                    if ($newKey === 'cpus' && $value !== null) {
+                        $value = (float) $value;
                     }
+                    $newLimits[$newKey] = $value;
                 }
-
-                $application->fill($data);
-                if ($application->settings->is_container_label_readonly_enabled && $requestHasDomains && $server->isProxyShouldRun()) {
-                    $application->custom_labels = str(implode('|coolify|', generateLabelsApplication($application)))->replace('|coolify|', "\n");
-                }
-                $application->save();
-
-                // Save limits using the trait method (handles new structure)
-                if (!empty($newLimits) && method_exists($application, 'saveResourceLimits')) {
-                    $application->saveResourceLimits($newLimits);
-                }
-            } else {
-                // Resource uses legacy storage - keep legacy fields in data
-                $application->fill($data);
-                if ($application->settings->is_container_label_readonly_enabled && $requestHasDomains && $server->isProxyShouldRun()) {
-                    $application->custom_labels = str(implode('|coolify|', generateLabelsApplication($application)))->replace('|coolify|', "\n");
-                }
-                $application->save();
+                // Remove from data so it doesn't get saved to legacy column
+                unset($data[$legacyField]);
             }
-        } else {
-            // No trait method - fallback to legacy behavior
-            $application->fill($data);
-            if ($application->settings->is_container_label_readonly_enabled && $requestHasDomains && $server->isProxyShouldRun()) {
-                $application->custom_labels = str(implode('|coolify|', generateLabelsApplication($application)))->replace('|coolify|', "\n");
+        }
+
+        // Update non-limit fields
+        $application->fill($data);
+        if ($application->settings->is_container_label_readonly_enabled && $requestHasDomains && $server->isProxyShouldRun()) {
+            $application->custom_labels = str(implode('|coolify|', generateLabelsApplication($application)))->replace('|coolify|', "\n");
+        }
+        $application->save();
+
+        // Save limits - write path is simple: always use new structure
+        // Legacy resources are auto-migrated, then saved to new structure
+        if (!empty($newLimits)) {
+            $source = $application->getResourceLimitsSource();
+            if ($source === 'legacy') {
+                // Auto-migrate then save (legacy resources cannot be written to directly)
+                $application->migrateResourceLimitsToNewStructure();
+                $application->refresh();
             }
-            $application->save();
+            $application->saveResourceLimits($newLimits);
         }
 
         if ($instantDeploy) {

@@ -13,7 +13,7 @@
     }
 </style>
 
-<div class="w-full" 
+<div class="w-full"
      x-data="inputWithSelect({
         defaultUnit: @js($defaultOption ?? ''),
         min: @js($min),
@@ -23,7 +23,7 @@
             combinedValue: @entangle($combinedBinding),
             structuredValue: @entangle($structuredBinding),
         @else
-            combinedValue: @js($value ?? '0'),
+            combinedValue: @js($value ?? null),
             structuredValue: @js(['value' => $value ?? '', 'unit' => $defaultOption ?? '']),
         @endif
      })"
@@ -43,14 +43,14 @@
     <div class="flex input-with-select-container">
         {{-- Hidden input for wire:dirty tracking (binds to combinedValue which has the full value with unit) --}}
         @if ($modelBinding !== 'null')
-            <input type="hidden" 
+            <input type="hidden"
                 wire:model={{ $combinedBinding }}
                 wire:dirty.class="dirty-tracker"
             />
         @endif
-        
+
         {{-- Input --}}
-        <input 
+        <input
             type="{{ $type }}"
             @if ($inputId) id="{{ $inputId }}" @endif
             x-model="inputValue"
@@ -72,7 +72,7 @@
         />
 
         {{-- Select --}}
-        <select 
+        <select
             @if ($selectId) id="{{ $selectId }}" @endif
             x-model="selectValue"
             @change="updateStructured()"
@@ -116,7 +116,7 @@ document.addEventListener('alpine:init', () => {
                 this.inputValue = this.structuredValue.value || '';
                 this.selectValue = this.structuredValue.unit || config.defaultUnit;
             }
-            
+
             // Watch combinedValue for external changes
             this.$watch('combinedValue', (newVal) => {
                 const current = this.toStructured();
@@ -126,7 +126,7 @@ document.addEventListener('alpine:init', () => {
                     this.structuredValue = this.toStructured();
                 }
             });
-            
+
             // Watch structuredValue for external changes
             this.$watch('structuredValue', (newVal) => {
                 if (newVal && newVal.value !== undefined) {
@@ -155,7 +155,8 @@ document.addEventListener('alpine:init', () => {
         parseCombinedValue(combined) {
             // Parse combinedValue (e.g., "512m") into structured format
             // Only matches if suffix is a valid unit to avoid footguns
-            if (!combined || combined === '0' || combined === 'null' || combined === null) {
+            // Empty string or null means no value set (matches Livewire behavior)
+            if (!combined || combined === '' || combined === '0' || combined === 'null' || combined === null) {
                 return { value: '', unit: config.defaultUnit };
             }
 
@@ -183,8 +184,8 @@ document.addEventListener('alpine:init', () => {
 
         updateCombined() {
             const structured = this.toStructured();
-            if (!structured.value) {
-                this.combinedValue = '0';
+            if (!structured.value || structured.value.trim() === '') {
+                this.combinedValue = '';
             } else {
                 this.combinedValue = structured.value + structured.unit;
             }

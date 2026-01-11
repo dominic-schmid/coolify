@@ -46,27 +46,25 @@ class DatabasesController extends Controller
 
     /**
      * Extract legacy limit fields from request.
-     * Only extracts if saveLegacyLimitsToNewStructure exists - otherwise keeps fields for legacy storage.
+     *
+     * @deprecated Legacy API parameter support (limits_*) will be removed in a future version.
+     *             Use new docker-compose field names (cpus, mem_limit, etc.) instead.
      *
      * @param Request $request
-     * @param string $modelClass The model class to check for the method
-     * @return array Extracted legacy limits (empty if method doesn't exist or no limits provided)
+     * @param string $modelClass The model class (unused, kept for backward compatibility)
+     * @return array Extracted legacy limits (empty if no limits provided)
      */
     private function extractLegacyLimitsFromRequest(Request $request, string $modelClass): array
     {
         $legacyLimitFields = ['limits_memory', 'limits_memory_swap', 'limits_memory_swappiness',
                              'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares'];
         $legacyLimits = [];
-        $hasSaveLegacyMethod = method_exists($modelClass, 'saveLegacyLimitsToNewStructure');
 
-        // Check if method exists before extracting fields
-        if ($hasSaveLegacyMethod) {
-            foreach ($legacyLimitFields as $field) {
-                if ($request->has($field)) {
-                    $legacyLimits[$field] = $request->input($field);
-                    // Remove from request so it doesn't get saved to legacy column
-                    $request->offsetUnset($field);
-                }
+        foreach ($legacyLimitFields as $field) {
+            if ($request->has($field)) {
+                $legacyLimits[$field] = $request->input($field);
+                // Remove from request so it doesn't get saved to legacy column
+                $request->offsetUnset($field);
             }
         }
 
@@ -76,13 +74,16 @@ class DatabasesController extends Controller
     /**
      * Save legacy limits to new structure if present and method exists.
      *
+     * @deprecated Legacy API parameter support (limits_*) will be removed in a future version.
+     *             Use new docker-compose field names (cpus, mem_limit, etc.) instead.
+     *
      * @param mixed $database The database instance to save limits to
      * @param array $legacyLimits The extracted legacy limits
      * @return void
      */
     private function saveLegacyLimitsToNewStructure($database, array $legacyLimits): void
     {
-        if (!empty($legacyLimits) && method_exists($database, 'saveLegacyLimitsToNewStructure')) {
+        if (!empty($legacyLimits)) {
             $database->saveLegacyLimitsToNewStructure($legacyLimits);
         }
     }
@@ -626,50 +627,45 @@ class DatabasesController extends Controller
 
         $updateData = $request->only($allowedFields);
 
-        // Check current storage pattern - update uses whatever is currently in use
+        // Handle resource limits - always use new structure
+        // TODO: Remove legacy API parameter support (limits_*) in a future version.
+        //       Use new docker-compose field names (cpus, mem_limit, etc.) instead.
         $legacyLimitFields = ['limits_memory', 'limits_memory_swap', 'limits_memory_swappiness',
                              'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares'];
 
-        if (method_exists($database, 'getResourceLimitsSource')) {
-            $currentSource = $database->getResourceLimitsSource();
+        // Extract limit fields from data and convert to new structure
+        $newLimits = [];
+        $legacyToNew = \App\Models\ResourceLimit::getLegacyToNewMapping();
 
-            if ($currentSource === 'new') {
-                // Resource uses new structure - convert legacy field names to new names and save
-                $newLimits = [];
-                $legacyToNew = \App\Models\ResourceLimit::getLegacyToNewMapping();
-
-                foreach ($legacyLimitFields as $legacyField) {
-                    if (isset($updateData[$legacyField])) {
-                        $newKey = $legacyToNew[$legacyField] ?? null;
-                        if ($newKey) {
-                            $value = $updateData[$legacyField];
-                            // Convert cpus from string to float for new structure
-                            if ($newKey === 'cpus' && $value !== null) {
-                                $value = (float) $value;
-                            }
-                            $newLimits[$newKey] = $value;
-                        }
-                        // Remove from update data so it doesn't get saved to legacy column
-                        unset($updateData[$legacyField]);
+        foreach ($legacyLimitFields as $legacyField) {
+            if (isset($updateData[$legacyField])) {
+                $newKey = $legacyToNew[$legacyField] ?? null;
+                if ($newKey) {
+                    $value = $updateData[$legacyField];
+                    // Convert cpus from string to float for new structure
+                    if ($newKey === 'cpus' && $value !== null) {
+                        $value = (float) $value;
                     }
+                    $newLimits[$newKey] = $value;
                 }
-
-                // Only update database fields, not backup configuration
-                $database->update($updateData);
-
-                // Save limits using the trait method (handles new structure)
-                if (!empty($newLimits) && method_exists($database, 'saveResourceLimits')) {
-                    $database->saveResourceLimits($newLimits);
-                }
-            } else {
-                // Resource uses legacy storage - keep legacy fields in updateData
-                // Only update database fields, not backup configuration
-                $database->update($updateData);
+                // Remove from update data so it doesn't get saved to legacy column
+                unset($updateData[$legacyField]);
             }
-        } else {
-            // No trait method - fallback to legacy behavior
-            // Only update database fields, not backup configuration
-            $database->update($updateData);
+        }
+
+        // Only update database fields, not backup configuration
+        $database->update($updateData);
+
+        // Save limits - write path is simple: always use new structure
+        // Legacy resources are auto-migrated, then saved to new structure
+        if (!empty($newLimits)) {
+            $source = $database->getResourceLimitsSource();
+            if ($source === 'legacy') {
+                // Auto-migrate then save (legacy resources cannot be written to directly)
+                $database->migrateResourceLimitsToNewStructure();
+                $database->refresh();
+            }
+            $database->saveResourceLimits($newLimits);
         }
 
         if ($whatToDoWithDatabaseProxy === 'start') {

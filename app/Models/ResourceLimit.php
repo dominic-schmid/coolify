@@ -52,6 +52,9 @@ class ResourceLimit extends Model
      * Get legacy column default values (original database defaults).
      * Used when resetting legacy columns during migration.
      * Note: These use the old 'limits_*' column names for legacy tables.
+     *
+     * @deprecated Legacy defaults and mapping will be removed in a future version.
+     *             Use new docker-compose field names (cpus, mem_limit, etc.) instead.
      */
     public static function getLegacyDefaults(): array
     {
@@ -68,6 +71,9 @@ class ResourceLimit extends Model
 
     /**
      * Map new column names to legacy column names for migration purposes.
+     *
+     * @deprecated Legacy mapping will be removed in a future version.
+     *             Use new docker-compose field names (cpus, mem_limit, etc.) directly.
      */
     public static function getNewToLegacyMapping(): array
     {
@@ -84,6 +90,9 @@ class ResourceLimit extends Model
 
     /**
      * Map legacy column names to new column names for migration purposes.
+     *
+     * @deprecated Legacy mapping will be removed in a future version.
+     *             Use new docker-compose field names (cpus, mem_limit, etc.) directly.
      */
     public static function getLegacyToNewMapping(): array
     {

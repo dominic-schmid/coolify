@@ -2537,7 +2537,9 @@ class ApplicationDeploymentJob implements ShouldBeEncrypted, ShouldQueue
                 $limits
             );
         } else {
-            // Fallback for applications without trait (legacy direct access)
+            // Fallback for applications without trait (legacy direct access - read-only)
+            // TODO: Remove legacy read support in a future version
+            // @deprecated Legacy column access will be removed. All resources should use HasResourceLimits trait.
             $docker_compose['services'][$this->container_name]['mem_limit'] = $this->application->limits_memory;
             $docker_compose['services'][$this->container_name]['memswap_limit'] = $this->application->limits_memory_swap;
             $docker_compose['services'][$this->container_name]['mem_swappiness'] = $this->application->limits_memory_swappiness;
@@ -2591,12 +2593,13 @@ class ApplicationDeploymentJob implements ShouldBeEncrypted, ShouldQueue
                 'labels' => $labels,
                 'resources' => [
                     'limits' => [
-                        'cpus' => $this->application->limits_cpus,
-                        'memory' => $this->application->limits_memory,
+                        // Use getEffectiveResourceLimits() to respect current storage state
+                        'cpus' => $this->application->getEffectiveResourceLimits()['cpus'] ?? null,
+                        'memory' => $this->application->getEffectiveResourceLimits()['mem_limit'] ?? null,
                     ],
                     'reservations' => [
-                        'cpus' => $this->application->limits_cpus,
-                        'memory' => $this->application->limits_memory,
+                        'cpus' => $this->application->getEffectiveResourceLimits()['cpus'] ?? null,
+                        'memory' => $this->application->getEffectiveResourceLimits()['mem_reservation'] ?? null,
                     ],
                 ],
             ];

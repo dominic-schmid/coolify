@@ -1971,17 +1971,24 @@ class Application extends BaseModel
         return [];
     }
 
+    /**
+     * Get resource limits in legacy format.
+     *
+     * @deprecated Use getEffectiveResourceLimits() instead, which respects current storage state.
+     *             This method will be removed in a future version.
+     */
     public function getLimits(): array
     {
-        return [
-            'limits_memory' => $this->limits_memory,
-            'limits_memory_swap' => $this->limits_memory_swap,
-            'limits_memory_swappiness' => $this->limits_memory_swappiness,
-            'limits_memory_reservation' => $this->limits_memory_reservation,
-            'limits_cpus' => $this->limits_cpus,
-            'limits_cpuset' => $this->limits_cpuset,
-            'limits_cpu_shares' => $this->limits_cpu_shares,
-        ];
+        // Use getEffectiveResourceLimits() and map back to legacy names for backward compatibility
+        $effective = $this->getEffectiveResourceLimits();
+        $newToLegacy = \App\Models\ResourceLimit::getNewToLegacyMapping();
+        $legacyLimits = [];
+
+        foreach ($newToLegacy as $newKey => $legacyKey) {
+            $legacyLimits[$legacyKey] = $effective[$newKey] ?? null;
+        }
+
+        return $legacyLimits;
     }
 
     public function generateConfig($is_json = false)

@@ -1922,15 +1922,15 @@ function serviceParser(Service $resource): Collection
         if ($server->isSwarm()) {
             // TODO: Swarm resource limits feature needs full rework
         } else {
-            // Extract limits from compose, using null as default (not set)
+            // Extract limits from compose using new docker-compose column names
             $composeLimits = [
-                'limits_cpus' => data_get($service, 'cpus', null),
-                'limits_cpuset' => data_get($service, 'cpuset', null),
-                'limits_cpu_shares' => data_get($service, 'cpu_shares', null),
-                'limits_memory' => data_get($service, 'mem_limit', null),
-                'limits_memory_swap' => data_get($service, 'memswap_limit', null),
-                'limits_memory_swappiness' => data_get($service, 'mem_swappiness', null),
-                'limits_memory_reservation' => data_get($service, 'mem_reservation', null),
+                'cpus' => data_get($service, 'cpus', null),
+                'cpuset' => data_get($service, 'cpuset', null),
+                'cpu_shares' => data_get($service, 'cpu_shares', null),
+                'mem_limit' => data_get($service, 'mem_limit', null),
+                'memswap_limit' => data_get($service, 'memswap_limit', null),
+                'mem_swappiness' => data_get($service, 'mem_swappiness', null),
+                'mem_reservation' => data_get($service, 'mem_reservation', null),
             ];
         }
 
@@ -1944,6 +1944,7 @@ function serviceParser(Service $resource): Collection
         }
 
         // If compose has limits, sync to database (compose takes precedence)
+        // saveResourceLimits() handles new structure only, legacy resources will throw error
         if ($hasComposeLimits) {
             $savedService->saveResourceLimits($composeLimits);
         }

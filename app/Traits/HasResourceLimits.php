@@ -11,6 +11,9 @@ trait HasResourceLimits
      * Save resource limits from legacy field names (limits_*) directly to new structure.
      * Use this when creating new resources via API with legacy field names.
      *
+     * @deprecated Legacy API parameter names (limits_*) will be removed in a future version.
+     *             Use new docker-compose field names (cpus, mem_limit, etc.) instead.
+     *
      * @param array $legacyLimits Array with legacy field names (limits_*)
      * @return void
      */
@@ -60,6 +63,9 @@ trait HasResourceLimits
     /**
      * Normalize memory value for storage.
      * Converts "0" with any suffix (0m, 0M, 0mb, 0MB, 0g, 0G, etc.) back to "0" for legacy compatibility.
+     *
+     * @deprecated Only used for legacy migration and API parameter conversion.
+     *             Will be removed when legacy support is removed.
      */
     private function normalizeMemoryValueForStorage($value)
     {
@@ -77,6 +83,9 @@ trait HasResourceLimits
 
     /**
      * Check if a legacy column value matches its legacy default value.
+     *
+     * @deprecated Only used for legacy migration and API parameter conversion.
+     *             Will be removed when legacy support is removed.
      */
     private function isLegacyDefaultValue($currentValue, $defaultValue): bool
     {
@@ -104,8 +113,12 @@ trait HasResourceLimits
 
     /**
      * Determine the source of resource limits for this resource.
+     * Respects the current storage state to determine where limits are stored.
      *
      * @return string 'new' | 'legacy' | 'fresh'
+     *   - 'new': Limits stored in resource_limits table (editable)
+     *   - 'legacy': Limits stored in legacy direct columns (read-only, must migrate)
+     *   - 'fresh': No limits configured yet
      */
     public function getResourceLimitsSource(): string
     {
@@ -134,6 +147,9 @@ trait HasResourceLimits
     /**
      * Check if the resource has legacy direct columns with non-default values.
      * Only returns true if legacy columns have values that differ from their defaults.
+     *
+     * @deprecated Legacy detection will be removed in a future version.
+     *             All resources should be migrated to the new structure.
      */
     public function hasLegacyResourceLimits(): bool
     {
@@ -172,6 +188,9 @@ trait HasResourceLimits
 
     /**
      * Check if this model has the legacy direct limit columns in its table.
+     *
+     * @deprecated Legacy column detection will be removed in a future version.
+     *             All resources should be migrated to the new structure.
      */
     public function hasLegacyResourceLimitColumns(): bool
     {
@@ -184,13 +203,22 @@ trait HasResourceLimits
 
     /**
      * Get the effective resource limits, regardless of storage pattern.
-     * Returns an array with all limit values.
+     * Returns an array with all limit values using new docker-compose column names.
+     *
+     * This method respects the current storage state:
+     * - 'new': Reads from resource_limits table
+     * - 'legacy': Reads from legacy direct columns (read-only, must migrate to edit)
+     * - 'fresh': Returns all null (no limits configured)
+     *
+     * @deprecated Legacy read support will be removed in a future version.
+     *             All resources should be migrated to the new structure.
      */
     public function getEffectiveResourceLimits(): array
     {
         $source = $this->getResourceLimitsSource();
 
         if ($source === 'new') {
+            // Read from new resource_limits table
             $limits = $this->resourceLimits;
             $result = [];
             foreach (ResourceLimit::FIELDS as $key) {
@@ -201,7 +229,8 @@ trait HasResourceLimits
         }
 
         if ($source === 'legacy') {
-            // Legacy columns use 'limits_*' prefix, map to new names
+            // Read from legacy columns (read-only, must migrate to edit)
+            // TODO: Remove legacy read support in a future version
             $legacyToNew = ResourceLimit::getLegacyToNewMapping();
             $result = [];
             foreach ($legacyToNew as $legacyKey => $newKey) {
@@ -216,13 +245,16 @@ trait HasResourceLimits
             return $result;
         }
 
-        // Fresh - all null
+        // Fresh - no limits configured, return all null
         return ResourceLimit::getFieldsWithDefaults();
     }
 
     /**
      * Migrate legacy resource limits to the new table structure.
      * Creates a new record in resource_limits and resets legacy columns.
+     *
+     * @deprecated This method is only needed for legacy resources.
+     *             Once all resources are migrated, this method will be removed.
      */
     public function migrateResourceLimitsToNewStructure(): bool
     {
@@ -266,7 +298,8 @@ trait HasResourceLimits
             $this->resourceLimits()->create($newValues);
 
             // Reset legacy columns to their original database defaults
-            // Skip the interceptor to avoid overwriting the newly created record
+            // NOTE: This is the ONLY place in the codebase that writes to legacy columns.
+            // All other write paths use the new structure or throw an error.
             $legacyDefaults = ResourceLimit::getLegacyDefaults();
             $columnsToReset = [];
             $schema = $this->getConnection()->getSchemaBuilder();
@@ -285,11 +318,35 @@ trait HasResourceLimits
         });
     }
 
+    /**
+     * Check if any resources of this type still use legacy storage.
+     * Static helper method for checking migration status.
+     *
+     * @deprecated Legacy detection will be removed in a future version.
+     *             All resources should be migrated to the new structure.
+     *
+     * @param string $modelClass The model class to check
+     * @return bool True if any resources use legacy storage
+     */
+    public static function hasAnyLegacyResources(string $modelClass): bool
+    {
+        if (!method_exists($modelClass, 'hasLegacyResourceLimits')) {
+            return false;
+        }
+
+        return $modelClass::query()
+            ->get()
+            ->contains(fn ($resource) => $resource->hasLegacyResourceLimits());
+    }
 
     /**
      * Get resource limits formatted for docker-compose.
      * Returns an array with docker-compose keys (cpus, mem_limit, etc.)
-     * Handles both new and legacy storage patterns.
+     *
+     * This method respects the current storage state by using getEffectiveResourceLimits(),
+     * which handles both new and legacy storage patterns (legacy is read-only).
+     *
+     * @return array Filtered array with only non-null values for docker-compose
      */
     public function getDockerComposeLimits(): array
     {
@@ -299,45 +356,34 @@ trait HasResourceLimits
     }
 
     /**
-     * Save resource limits using the appropriate pattern.
-     * Always saves the limits (even if all null) - never deletes records.
+     * Save resource limits using the new structure.
+     *
+     * Write path is dead simple:
+     * - New structure: update existing record
+     * - Legacy structure: throw error (read-only, must migrate first)
+     * - Fresh resource: create new record if any limit is set
+     *
+     * NOTE: This is the ONLY write path for resource limits. All other code paths
+     * must use this method. Legacy columns cannot be written to directly.
+     *
+     * @param array $limits Array with new docker-compose column names (cpus, mem_limit, etc.)
+     * @throws \RuntimeException If resource uses legacy storage (must migrate first)
      */
     public function saveResourceLimits(array $limits): void
     {
         $source = $this->getResourceLimitsSource();
 
         if ($source === 'new') {
-            // Update existing record in resource_limits table (uses new column names)
+            // Update existing record in resource_limits table
             $this->resourceLimits->update($limits);
         } elseif ($source === 'legacy') {
-            // Update direct columns (legacy pattern - map new names to legacy names)
-            $newToLegacy = ResourceLimit::getNewToLegacyMapping();
-            $legacyLimits = [];
-            foreach ($limits as $newKey => $value) {
-                if (isset($newToLegacy[$newKey])) {
-                    // Normalize memory values: convert "0m" to "0" for legacy compatibility
-                    if (in_array($newKey, ['mem_limit', 'memswap_limit', 'mem_reservation'])) {
-                        $value = $this->normalizeMemoryValueForStorage($value);
-                    }
-                    // Convert cpus from float to string for legacy columns
-                    if ($newKey === 'cpus' && $value !== null) {
-                        $value = (string) $value;
-                    }
-                    $legacyLimits[$newToLegacy[$newKey]] = $value;
-                }
-            }
-            $this->update($legacyLimits);
+            // Legacy resources are read-only - must migrate first
+            throw new \RuntimeException(
+                'Cannot update resource limits: legacy storage is read-only. Please migrate to new structure first.'
+            );
         } else {
-            // Fresh resource - only create record if at least one limit is set
-            // (Don't create empty records for fresh resources)
-            $hasAnyLimit = false;
-            foreach ($limits as $value) {
-                if ($value !== null) {
-                    $hasAnyLimit = true;
-                    break;
-                }
-            }
-
+            // Fresh resource - create new record if any limit is set
+            $hasAnyLimit = collect($limits)->contains(fn($v) => $v !== null);
             if ($hasAnyLimit) {
                 $this->resourceLimits()->create($limits);
             }
