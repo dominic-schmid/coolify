@@ -8,6 +8,63 @@ use Illuminate\Database\Eloquent\Relations\MorphOne;
 trait HasResourceLimits
 {
     /**
+     * Temporarily store resource limits extracted from old fields during creation.
+     *
+     * @var array|null
+     */
+    public $pendingResourceLimits = null;
+
+    /**
+     * Boot the trait and register event listeners.
+     */
+    protected static function bootHasResourceLimits()
+    {
+        // Intercept old limit fields before saving
+        static::saving(function ($model) {
+            // Only intercept for new resources (not updating legacy ones)
+            if ($model->exists) {
+                // Existing resource - check if it's legacy
+                $source = $model->getResourceLimitsSource();
+                if ($source === 'legacy') {
+                    // Don't intercept - let legacy resources continue using old columns
+                    return;
+                }
+            }
+
+            // Extract old limit fields from attributes
+            $limitKeys = array_keys(ResourceLimit::DEFAULTS);
+            $pendingLimits = [];
+
+            foreach ($limitKeys as $key) {
+                if (isset($model->attributes[$key])) {
+                    $pendingLimits[$key] = $model->attributes[$key];
+                    // Remove from attributes so it doesn't get saved to legacy column
+                    unset($model->attributes[$key]);
+                }
+            }
+
+            // Store for saving after model is persisted
+            if (!empty($pendingLimits)) {
+                $model->pendingResourceLimits = $pendingLimits;
+            }
+        });
+
+        // Save intercepted limits to new structure after model is saved
+        static::saved(function ($model) {
+            if (isset($model->pendingResourceLimits) && !empty($model->pendingResourceLimits)) {
+                // Save if resource is fresh (newly created) or already using new structure
+                // Don't save for legacy resources (they weren't intercepted anyway)
+                $source = $model->getResourceLimitsSource();
+                if ($source === 'fresh' || $source === 'new') {
+                    $model->saveResourceLimits($model->pendingResourceLimits);
+                }
+                // Clear the pending limits
+                unset($model->pendingResourceLimits);
+            }
+        });
+    }
+
+    /**
      * Get the resource limits relationship
      */
     public function resourceLimits(): MorphOne
