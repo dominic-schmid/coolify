@@ -2518,12 +2518,6 @@ class ApplicationDeploymentJob implements ShouldBeEncrypted, ShouldQueue
                             ),
                         ],
                     ],
-                    'mem_limit' => $this->application->limits_memory,
-                    'memswap_limit' => $this->application->limits_memory_swap,
-                    'mem_swappiness' => $this->application->limits_memory_swappiness,
-                    'mem_reservation' => $this->application->limits_memory_reservation,
-                    'cpus' => (float) $this->application->limits_cpus,
-                    'cpu_shares' => $this->application->limits_cpu_shares,
                 ],
             ],
             'networks' => [
@@ -2534,6 +2528,26 @@ class ApplicationDeploymentJob implements ShouldBeEncrypted, ShouldQueue
                 ],
             ],
         ];
+
+        // Add resource limits (handles both new and legacy storage patterns)
+        if (method_exists($this->application, 'getDockerComposeLimits')) {
+            $limits = $this->application->getDockerComposeLimits();
+            $docker_compose['services'][$this->container_name] = array_merge(
+                $docker_compose['services'][$this->container_name],
+                $limits
+            );
+        } else {
+            // Fallback for applications without trait (legacy direct access)
+            $docker_compose['services'][$this->container_name]['mem_limit'] = $this->application->limits_memory;
+            $docker_compose['services'][$this->container_name]['memswap_limit'] = $this->application->limits_memory_swap;
+            $docker_compose['services'][$this->container_name]['mem_swappiness'] = $this->application->limits_memory_swappiness;
+            $docker_compose['services'][$this->container_name]['mem_reservation'] = $this->application->limits_memory_reservation;
+            $docker_compose['services'][$this->container_name]['cpus'] = (float) $this->application->limits_cpus;
+            $docker_compose['services'][$this->container_name]['cpu_shares'] = $this->application->limits_cpu_shares;
+            if (! is_null($this->application->limits_cpuset)) {
+                $docker_compose['services'][$this->container_name]['cpuset'] = $this->application->limits_cpuset;
+            }
+        }
         // Always use .env file
         $docker_compose['services'][$this->container_name]['env_file'] = ['.env'];
 
@@ -2551,10 +2565,6 @@ class ApplicationDeploymentJob implements ShouldBeEncrypted, ShouldQueue
                 'retries' => $this->application->health_check_retries,
                 'start_period' => $this->application->health_check_start_period.'s',
             ];
-        }
-
-        if (! is_null($this->application->limits_cpuset)) {
-            data_set($docker_compose, 'services.'.$this->container_name.'.cpuset', $this->application->limits_cpuset);
         }
         if ($this->mainServer->isSwarm()) {
             data_forget($docker_compose, 'services.'.$this->container_name.'.container_name');
