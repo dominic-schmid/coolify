@@ -19,11 +19,11 @@
                             Resource limits are stored in the legacy format and <strong>cannot be edited</strong> until migrated.
                             Your current limits will continue to work normally for deployments.
                         </p>
-                        <p class="text-xs mt-2 dark:text-neutral-400">
-                            Click "Migrate Now" to move your settings to the new structure. This is a one-time action.
-                        </p>
                         @can('update', $resource)
-                            <x-forms.button wire:click="migrateToNewStructure" class="mt-3" type="button">
+                            <p class="text-xs mt-2 dark:text-neutral-400">
+                                Click "Migrate Now" to move your settings to the new structure. This is a one-time action.
+                            </p>
+                            <x-forms.button wire:click="migrateToNewStructure" class="mt-2" type="button">
                                 Migrate Now
                             </x-forms.button>
                         @endcan
@@ -35,9 +35,8 @@
             <h3>Limit CPUs</h3>
             <div class="flex flex-col gap-4">
                 <div class="flex flex-col md:flex-row gap-4">
-                    <x-forms.input canGate="update" :canResource="$resource" type="number" min="0" step="0.01"
+                    <x-forms.input canGate="update" :canResource="$resource" type="number" min="0" max="1024" step="0.1"
                         placeholder="0"
-                        :disabled="$this->isLegacyStorage()"
                         helper="Limit how much CPU the container can use. 0 means unlimited (use all available CPUs). Use decimal numbers like 1.5 for one and a half CPUs, or 0.5 for half a CPU.<br>More info <a class='underline dark:text-white' target='_blank' href='https://docs.docker.com/engine/reference/run/#cpu-quota-constraint'>cpu-quota</a>."
                         label="CPU Limit" id="limitsCpus">
                         <x-slot:suffix>
@@ -60,8 +59,7 @@
                     </x-forms.input>
                 </div>
                 <div class="flex flex-col md:flex-row gap-4">
-                    <x-forms.input canGate="update" :canResource="$resource" placeholder="0-1,4"
-                        :disabled="$this->isLegacyStorage()"
+                    <x-forms.input canGate="update" :canResource="$resource" placeholder="0"
                         helper="Pin container to specific CPU threads. 0 means use all threads. Example: 0-1,4 results in using threads 0,1,4.<br>More info <a class='underline dark:text-white'  target='_blank' href='https://docs.docker.com/engine/reference/run/#cpuset-constraint'>cpuset</a>."
                         label="CPU sets to use" id="limitsCpuset">
                         <x-slot:suffix>
@@ -75,7 +73,6 @@
                     </x-forms.input>
                     <x-forms.input canGate="update" :canResource="$resource" type="number" min="0" max="8192" step="64"
                         placeholder="1024"
-                        :disabled="$this->isLegacyStorage()"
                         helper="Relative CPU priority when containers compete for resources. Default: 1024 (normal). Examples: 512 = half priority, 2048 = double priority.<br>More info <a class='underline dark:text-white' target='_blank' href='https://docs.docker.com/engine/reference/run/#cpu-share-constraint'>cpu_shares</a>."
                         label="CPU Weight" id="limitsCpuShares">
                         <x-slot:suffix>
@@ -102,8 +99,7 @@
                     <x-forms.input-with-select canGate="update" :canResource="$resource"
                         type="number"
                         min="0"
-                        placeholder="512"
-                        :disabled="$this->isLegacyStorage()"
+                        placeholder="0"
                         helper="Hard limit on container memory usage. The container will be killed if it exceeds this limit.<br>More info <a class='underline dark:text-white' target='_blank' href='https://docs.docker.com/compose/compose-file/05-services/#mem_limit'>mem_limit</a>."
                         label="Memory Limit" id="limitsMemory"
                         :options="['b' => 'B', 'k' => 'KiB', 'm' => 'MiB', 'g' => 'GiB']"
@@ -111,8 +107,7 @@
                     <x-forms.input-with-select canGate="update" :canResource="$resource"
                         type="number"
                         min="0"
-                        placeholder="256"
-                        :disabled="$this->isLegacyStorage()"
+                        placeholder="0"
                         helper="Guaranteed memory reservation for the container. Docker attempts to ensure this amount is always available.<br>More info <a class='underline dark:text-white' target='_blank' href='https://docs.docker.com/compose/compose-file/05-services/#mem_reservation'>mem_reservation</a>."
                         label="Memory Reservation" id="limitsMemoryReservation"
                         :options="['b' => 'B', 'k' => 'KiB', 'm' => 'MiB', 'g' => 'GiB']"
@@ -122,15 +117,13 @@
                     <x-forms.input-with-select canGate="update" :canResource="$resource"
                         type="number"
                         min="0"
-                        placeholder="1024"
-                        :disabled="$this->isLegacyStorage()"
+                        placeholder="0"
                         helper="Total limit for memory plus swap space. Combined limit for both RAM and swap usage.<br>More info <a class='underline dark:text-white' target='_blank' href='https://docs.docker.com/compose/compose-file/05-services/#memswap_limit'>memswap_limit</a>."
                         label="Maximum Swap Limit" id="limitsMemorySwap"
                         :options="['b' => 'B', 'k' => 'KiB', 'm' => 'MiB', 'g' => 'GiB']"
                         defaultOption="m" />
                     <x-forms.input canGate="update" :canResource="$resource"
                         placeholder="60"
-                        :disabled="$this->isLegacyStorage()"
                         helper="Control how aggressively the kernel swaps memory. 0 = swap only when necessary, 100 = swap aggressively. Default: 60.<br>More info <a class='underline dark:text-white' target='_blank' href='https://docs.docker.com/compose/compose-file/05-services/#mem_swappiness'>mem_swappiness</a>."
                         type="number" min="0" max="100" label="Swappiness"
                         id="limitsMemorySwappiness" suffix="%" />

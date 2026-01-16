@@ -162,7 +162,7 @@ class ResourceLimits extends Component
         return $value;
     }
 
-    public function submit()
+    public function submit(): void
     {
         try {
             $this->authorize('update', $this->resource);
