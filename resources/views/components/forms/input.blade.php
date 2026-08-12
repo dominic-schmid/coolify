@@ -1,3 +1,12 @@
+@php
+    // `suffix` accepts either a prop ("%") or a slot, so callers can glue plain
+    // text or richer markup to the right edge of the field.
+    $hasSuffix = $suffix instanceof \Illuminate\View\ComponentSlot ? $suffix->isNotEmpty() : filled($suffix);
+    $inputClass = $hasSuffix ? $defaultClass.' input-group-field' : $defaultClass;
+    // Announce the unit after the value instead of hiding it: "1.5, CPUs".
+    $suffixId = $hasSuffix ? $htmlId.'-suffix' : null;
+@endphp
+
 <div @class([
     'flex-1' => $isMultiline,
     'w-full' => !$isMultiline,
@@ -47,8 +56,11 @@
 
         </div>
     @else
+        @if ($hasSuffix)
+            <div class="input-group">
+        @endif
         <input autocomplete="{{ $autocomplete }}" @if ($value) value="{{ $value }}" @endif
-            {{ $attributes->merge(['class' => $defaultClass]) }} @required($required) @readonly($readonly)
+            {{ $attributes->merge(['class' => $inputClass]) }} @required($required) @readonly($readonly)
             @if ($modelBinding !== 'null') wire:model={{ $modelBinding }} wire:dirty.class="[box-shadow:inset_4px_0_0_#6b16ed,inset_0_0_0_2px_#e5e5e5] dark:[box-shadow:inset_4px_0_0_#fcd452,inset_0_0_0_2px_#242424]" @endif
             wire:loading.attr="disabled"
             type="{{ $type }}" @disabled($disabled) min="{{ $attributes->get('min') }}"
@@ -56,7 +68,12 @@
             maxlength="{{ $attributes->get('maxlength') }}"
             @if ($htmlId !== 'null') id={{ $htmlId }} @endif name="{{ $name }}"
             placeholder="{{ $attributes->get('placeholder') }}"
+            @if ($suffixId) aria-describedby="{{ $suffixId }}" @endif
             @if ($autofocus) x-ref="autofocusInput" @endif>
+        @if ($hasSuffix)
+                <span id="{{ $suffixId }}" class="input-group-addon">{{ $suffix }}</span>
+            </div>
+        @endif
     @endif
     @if (!$label && $helper)
         <x-helper :helper="$helper" />

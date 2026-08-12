@@ -5,36 +5,46 @@ namespace App\View\Components\Forms;
 use Closure;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Str;
 use Illuminate\View\Component;
 
-class Input extends Component
+/**
+ * A number field glued to a unit picker, bound to a single Livewire property.
+ *
+ * The property keeps storing one Docker-style string ("256m", "2g", "0") — the
+ * split into number and unit is client-side only, so validation rules and model
+ * columns are unchanged.
+ */
+class InputWithSelect extends Component
 {
     public ?string $modelBinding = null;
 
     public ?string $htmlId = null;
 
+    /**
+     * @param  array<string, string>  $options  Stored unit => label shown in the picker, e.g. ['m' => 'MiB'].
+     */
     public function __construct(
         public ?string $id = null,
         public ?string $name = null,
-        public ?string $type = 'text',
+        public ?string $type = 'number',
         public ?string $value = null,
         public ?string $label = null,
+        public array $options = [],
+        public ?string $defaultOption = null,
         public bool $required = false,
         public bool $disabled = false,
         public bool $readonly = false,
         public ?string $helper = null,
-        public bool $allowToPeak = true,
-        public bool $isMultiline = false,
+        public ?string $placeholder = null,
         public string $defaultClass = 'input',
         public string $autocomplete = 'off',
-        public ?int $minlength = null,
-        public ?int $maxlength = null,
+        public ?string $min = null,
+        public ?string $max = null,
+        public ?string $step = null,
         public bool $autofocus = false,
         public ?string $canGate = null,
         public mixed $canResource = null,
         public bool $autoDisable = true,
-        public ?string $suffix = null,
     ) {
         // Handle authorization-based disabling
         if ($this->canGate && $this->canResource && $this->autoDisable) {
@@ -44,6 +54,22 @@ class Input extends Component
                 $this->disabled = true;
             }
         }
+    }
+
+    /**
+     * The unit picker options in the shape `x-forms.listbox` expects.
+     *
+     * @return array<int, array{value: string, label: string}>
+     */
+    public function listboxOptions(): array
+    {
+        $options = [];
+
+        foreach ($this->options as $unit => $label) {
+            $options[] = ['value' => (string) $unit, 'label' => (string) $label];
+        }
+
+        return $options;
     }
 
     public function render(): View|Closure|string
@@ -69,13 +95,11 @@ class Input extends Component
         if (is_null($this->name)) {
             $this->name = $this->modelBinding !== 'null' ? $this->modelBinding : (string) $this->id;
         }
-        // Durable class (not type-attr based): Alpine may toggle type to "text" when revealing,
-        // and settings-workspace CSS otherwise overrides utility padding-right.
-        if ($this->type === 'password' && $this->allowToPeak) {
-            $this->defaultClass = $this->defaultClass.' input-with-password-toggle';
+
+        if (is_null($this->defaultOption) && ! empty($this->options)) {
+            $this->defaultOption = array_key_first($this->options);
         }
 
-        // $this->label = Str::title($this->label);
-        return view('components.forms.input');
+        return view('components.forms.input-with-select');
     }
 }

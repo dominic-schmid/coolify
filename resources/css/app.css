@@ -4232,3 +4232,77 @@ a.command-palette-item:focus-visible {
 .dark .command-palette-arch-badge {
     color: #fcd34d;
 }
+
+/*
+ * Joined controls (x-forms.input `suffix`, x-forms.input-with-select)
+ *
+ * A field glued to a trailing unit — a static addon ("%") or the listbox unit
+ * picker. Written as plain CSS rather than utilities because the settings-form
+ * rules above set .input/.listbox-trigger radii and box-shadow at the same or
+ * higher weight and would otherwise win.
+ */
+.input-group {
+    display: flex;
+    align-items: stretch;
+    min-width: 0;
+}
+
+/* -1px pulls the two borders onto each other so the seam reads as one line. */
+.input-group > .input-group-field {
+    flex: 1 1 0%;
+    min-width: 0;
+    margin-right: -1px;
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+.input-group > .input-group-unit {
+    flex: 0 0 auto;
+    width: 6.5rem;
+}
+
+/* Non-interactive unit label: reads as part of the control, not another field. */
+.input-group > .input-group-addon {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    height: 2.25rem;
+    padding: 0 0.75rem;
+    border: 1px solid var(--coollabs-line);
+    background: var(--coollabs-elevated);
+    color: var(--coollabs-subtle);
+    font-size: 0.875rem;
+    line-height: 1;
+    user-select: none;
+    white-space: nowrap;
+}
+
+.application-settings-workspace .input-group > .input-group-addon,
+.application-settings-form .input-group > .input-group-addon {
+    height: 2rem;
+}
+
+/* Square off the joined edge last so neither control re-rounds it. */
+.input-group > .input-group-unit .listbox-trigger,
+.input-group > .input-group-addon {
+    border-radius: 0 8px 8px 0;
+}
+
+/* Focus and the dirty marker must sit above the overlapped neighbour border. */
+.input-group > .input-group-field:focus-visible,
+.input-group > .input-group-unit:focus-within {
+    position: relative;
+    z-index: 1;
+}
+
+/* wire:dirty lands on the hidden field holding the combined value; mirror it
+   onto the visible number input so the control highlights like a plain one. */
+.input-group > .is-dirty ~ .input-group-field {
+    position: relative;
+    z-index: 1;
+    box-shadow: inset 4px 0 0 #6b16ed, inset 0 0 0 2px #e5e5e5 !important;
+}
+
+.dark .input-group > .is-dirty ~ .input-group-field {
+    box-shadow: inset 4px 0 0 #fcd452, inset 0 0 0 2px #242424 !important;
+}

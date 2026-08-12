@@ -1,3 +1,4 @@
+import { initializeInputWithSelectComponent } from './input-with-select.js';
 import { initializeTerminalComponent } from './terminal.js';
 
 // Livewire 3.5.19+ re-applies `x-cloak` to morphed elements during wire:navigate
@@ -12,6 +13,10 @@ document.addEventListener('livewire:navigated', () => {
 // Keeping this registration independent from the current route also makes it
 // available before Alpine processes terminal markup after wire:navigate.
 document.addEventListener('alpine:init', initializeTerminalComponent);
+
+// Same reasoning for the value+unit input: registering it here keeps it defined
+// after wire:navigate, where a page-local alpine:init listener would never run.
+document.addEventListener('alpine:init', initializeInputWithSelectComponent);
 
 /**
  * Smooth-scroll a settings section into view, then flash its border for 500ms
